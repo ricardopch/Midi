@@ -1,13 +1,13 @@
 """Convierte el motor Java (app/src/.../engine) a C# para la versión de Windows.
 
 Uso: python3 java2cs.py ENGINE_JAVA_DIR OUT_DIR
-Solo cubre el subconjunto de Java que usa el motor; Fft, Progress y Note se escriben a mano.
+Solo cubre el subconjunto de Java que usa el motor; Progress y Note se escriben a mano (windows/engine/Common.cs).
 """
 import os
 import re
 import sys
 
-FILES = ["MelodyExtractor", "Synth", "Resampler"]
+FILES = ["BasicPitch", "WeightFile", "MidiWriter", "Synth", "Resampler"]
 
 KEYWORDS = ["out", "in", "base", "lock", "ref", "params", "object", "event", "checked", "fixed",
             "operator", "is", "as", "internal", "readonly", "sealed", "unchecked", "virtual",
@@ -26,6 +26,7 @@ def convert(src):
     s = re.sub(r"^package [\w.]+;\s*", "", s, flags=re.M)
     s = re.sub(r"^import [\w.]+;\s*\n", "", s, flags=re.M)
     s = s.replace("@Override", "")
+    s = re.sub(r"\s+throws [\w., ]+(?=\s*\{)", "", s)
     # constantes
     s = re.sub(r"\b(public|private) static final (int|double|float|long) (?=[^;{]*;)(?![^;]*\bnew\b)(?![^;]*Math\.)",
                r"\1 const \2 ", s)
@@ -38,10 +39,20 @@ def convert(src):
     s = re.sub(r"\bboolean\b", "bool", s)
     s = re.sub(r"\bString\b", "string", s)
     s = s.replace("Double.NEGATIVE_INFINITY", "double.NegativeInfinity")
+    s = s.replace("Float.POSITIVE_INFINITY", "float.PositiveInfinity")
+    s = s.replace("Float.NEGATIVE_INFINITY", "float.NegativeInfinity")
+    s = s.replace("Float.intBitsToFloat(", "JU.IntBitsToFloat(")
+    s = s.replace("IllegalStateException", "InvalidOperationException")
+    s = re.sub(r"\bHashMap<", "Dictionary<", s)
+    s = s.replace(".containsKey(", ".ContainsKey(")
+    s = re.sub(r"(\w+)\.equals\((\w+)\)", r"(\1 == \2)", s)
+    s = s.replace(".length()", ".Length")
+    s = re.sub(r"\.charAt\(([^()]*)\)", r"[\1]", s)
     s = s.replace("IllegalArgumentException", "ArgumentException")
     s = s.replace("System.arraycopy(", "Array.Copy(")
     s = s.replace("Arrays.fill(", "JU.Fill(")
     s = s.replace("Arrays.copyOfRange(", "JU.CopyOfRange(")
+    s = s.replace("Arrays.copyOf(", "JU.CopyOf(")
     s = s.replace("Arrays.sort(", "Array.Sort(")
     s = re.sub(r"java\.util\.Collections\.sort\((\w+)\)", r"\1.Sort()", s)
     s = re.sub(r"\bCollections\.sort\((\w+)\)", r"\1.Sort()", s)
@@ -70,7 +81,7 @@ def convert(src):
     s = re.sub(r"\bProgress\b", "IProgress", s)
     # cuerpo dentro del namespace
     head = "// Generado desde el motor Java con tools/java2cs.py. No editar a mano.\n" \
-           "using System;\nusing System.Collections.Generic;\n\nnamespace MelodiaMidi.Engine\n{\n"
+           "using System;\nusing System.Collections.Generic;\nusing System.IO;\n\nnamespace MelodiaMidi.Engine\n{\n"
     return head + s.rstrip() + "\n}\n"
 
 
@@ -83,11 +94,14 @@ def main(src_dir, out_dir):
             # en C# un método no puede llamarse igual que una variable local que lo usa
             cs = cs.replace("private float[] table(int key", "private float[] makeTable(int key")
             cs = re.sub(r"= table\(", "= makeTable(", cs)
-            cs = cs.replace("Map<Integer, float[]> tableCache = new HashMap<Integer, float[]>()",
-                            "Dictionary<int, float[]> tableCache = new Dictionary<int, float[]>()")
+            cs = re.sub(r"Map<Integer, float\[\]> tableCache = new (?:HashMap|Dictionary)<Integer, float\[\]>\(\)",
+                        "Dictionary<int, float[]> tableCache = new Dictionary<int, float[]>()", cs)
             cs = cs.replace("Integer k = key;\n        float[] cached = tableCache[k];\n        if (cached != null) return cached;",
                             "int k = key;\n        float[] cached;\n        if (tableCache.TryGetValue(k, out cached)) return cached;")
             cs = cs.replace("tableCache.put(k, t);", "tableCache[k] = t;")
+        if name == "WeightFile":
+            cs = re.sub(r"map\.put\((\w+), (\w+)\);", r"map[\1] = \2;", cs)
+            cs = cs.replace("map.RemoveAt(name)", "map.Remove(name)")
         open(os.path.join(out_dir, name + ".cs"), "w", encoding="utf-8").write(cs)
         print("ok", name)
 

@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.content.ClipData;
 import android.content.ContentResolver;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.res.ColorStateList;
 import android.database.Cursor;
 import android.graphics.Color;
@@ -33,11 +34,13 @@ import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import com.ricardopch.midi.engine.MelodyExtractor;
+import com.ricardopch.midi.engine.BasicPitch;
+import com.ricardopch.midi.engine.MidiWriter;
 import com.ricardopch.midi.engine.Note;
 import com.ricardopch.midi.engine.Progress;
 import com.ricardopch.midi.engine.Resampler;
 import com.ricardopch.midi.engine.Synth;
+import com.ricardopch.midi.engine.WeightFile;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -46,11 +49,16 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.Locale;
 
 public class MainActivity extends Activity {
     private static final int REQ_PICK = 1;
     private static final int REQ_SAVE = 2;
+    private static final int REQ_SAVE_MIDI = 3;
+    private static final String[] NOTE_LEVELS = {
+            "Menos notas (solo lo que se oye claro)", "Normal", "Más notas (capta más detalles)"
+    };
     private static final int OUT_RATE = 44100;
 
     private static final int C_BG = Color.parseColor("#F4F2FA");
@@ -64,14 +72,16 @@ public class MainActivity extends Activity {
     private final Handler ui = new Handler(Looper.getMainLooper());
 
     private TextView fileInfo, status, resultInfo;
-    private Spinner instrumentSpinner;
-    private Button pickBtn, previewBtn, convertBtn, cancelBtn, playBtn, saveBtn, shareBtn;
+    private Spinner instrumentSpinner, notesSpinner;
+    private Button pickBtn, previewBtn, convertBtn, cancelBtn, playBtn, saveBtn, shareBtn, saveMidiBtn, shareMidiBtn;
     private ProgressBar progressBar;
     private LinearLayout resultCard;
 
     private File inputFile;          // copia local de la canción
     private String inputName;
     private File outputFile;         // MP4 generado
+    private File midiFile;           // MIDI generado
+    private static WeightFile model; // pesos de Basic Pitch (se cargan una vez)
     private volatile boolean busy;
     private volatile boolean cancel;
     private Thread worker;
@@ -107,7 +117,8 @@ public class MainActivity extends Activity {
 
         TextView title = text("♪ Melodía MIDI", 26, C_TEXT, true);
         root.addView(title);
-        TextView sub = text("Saca la melodía de una canción y crea un MP4 tocado con un solo instrumento.", 15, C_MUTED, false);
+        TextView sub = text("Pasa a notas todo lo que suena en una canción y crea un MP4 tocado con un solo instrumento, "
+                + "además del archivo MIDI (.mid).", 15, C_MUTED, false);
         sub.setPadding(0, dp(4), 0, dp(14));
         root.addView(sub);
 
@@ -141,9 +152,24 @@ public class MainActivity extends Activity {
             @Override public void onNothingSelected(AdapterView<?> parent) { }
         });
 
-        // 3. Convertir
-        LinearLayout c3 = card(root, "3 · Convertir");
-        convertBtn = button("Crear MP4", true);
+        // 3. Cantidad de notas
+        LinearLayout cn = card(root, "3 · Cantidad de notas");
+        notesSpinner = new Spinner(this);
+        ArrayAdapter<String> an = new ArrayAdapter<String>(this, android.R.layout.simple_spinner_item, NOTE_LEVELS);
+        an.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        notesSpinner.setAdapter(an);
+        cn.addView(notesSpinner, fullWidth());
+        TextView nh = text("Si faltan notas, elige «Más notas». Si sobran notas o suena demasiado lleno, elige «Menos notas».",
+                13, C_MUTED, false);
+        nh.setPadding(0, dp(8), 0, 0);
+        cn.addView(nh);
+        SharedPreferences prefs = getPreferences(MODE_PRIVATE);
+        instrumentSpinner.setSelection(Math.max(0, Math.min(Synth.NAMES.length - 1, prefs.getInt("instrumento", 0))));
+        notesSpinner.setSelection(Math.max(0, Math.min(2, prefs.getInt("notas", 1))));
+
+        // 4. Convertir
+        LinearLayout c3 = card(root, "4 · Convertir");
+        convertBtn = button("Crear MP4 y MIDI", true);
         convertBtn.setEnabled(false);
         convertBtn.setAlpha(0.5f);
         c3.addView(convertBtn, fullWidth());
@@ -180,32 +206,31 @@ public class MainActivity extends Activity {
         resultCard.addView(resultInfo);
         playBtn = button("▶  Reproducir", true);
         resultCard.addView(playBtn, fullWidth());
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        saveBtn = button("Guardar…", false);
-        shareBtn = button("Compartir", false);
-        LinearLayout.LayoutParams half1 = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        half1.rightMargin = dp(5);
-        LinearLayout.LayoutParams half2 = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        half2.leftMargin = dp(5);
-        row.addView(saveBtn, half1);
-        row.addView(shareBtn, half2);
-        LinearLayout.LayoutParams rl = fullWidth();
-        rl.topMargin = dp(10);
-        resultCard.addView(row, rl);
+        saveBtn = button("Guardar MP4…", false);
+        shareBtn = button("Compartir MP4", false);
+        addRow(resultCard, saveBtn, shareBtn);
+        saveMidiBtn = button("Guardar MIDI…", false);
+        shareMidiBtn = button("Compartir MIDI", false);
+        addRow(resultCard, saveMidiBtn, shareMidiBtn);
         playBtn.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { togglePlay(); }
         });
         saveBtn.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { saveOutput(); }
+            @Override public void onClick(View v) { saveFile(outputFile, "video/mp4", REQ_SAVE); }
         });
         shareBtn.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { shareOutput(); }
+            @Override public void onClick(View v) { shareFile(outputFile, "video/mp4", "Compartir MP4"); }
+        });
+        saveMidiBtn.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { saveFile(midiFile, "audio/midi", REQ_SAVE_MIDI); }
+        });
+        shareMidiBtn.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { shareFile(midiFile, "audio/midi", "Compartir MIDI"); }
         });
 
-        TextView tip = text("Consejo: funciona mejor cuando la voz o el instrumento principal se oye claro. "
-                + "En partes sin melodía (intros, solos de batería) puede seguir al acompañamiento. "
-                + "El MP4 dura lo mismo que la canción, así que puedes compararlos.", 13, C_MUTED, false);
+        TextView tip = text("Las notas se sacan con una red neuronal (Basic Pitch) que reconoce voces e instrumentos a la vez. "
+                + "El MP4 y el MIDI duran lo mismo que la canción, así que puedes compararlos. "
+                + "El archivo .mid se abre en cualquier programa de música (MuseScore, GarageBand, FL Studio…).", 13, C_MUTED, false);
         tip.setPadding(dp(4), dp(16), dp(4), 0);
         root.addView(tip);
 
@@ -262,6 +287,20 @@ public class MainActivity extends Activity {
         return b;
     }
 
+    private void addRow(LinearLayout parent, Button left, Button right) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams half1 = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        half1.rightMargin = dp(5);
+        LinearLayout.LayoutParams half2 = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        half2.leftMargin = dp(5);
+        row.addView(left, half1);
+        row.addView(right, half2);
+        LinearLayout.LayoutParams rl = fullWidth();
+        rl.topMargin = dp(10);
+        parent.addView(row, rl);
+    }
+
     private LinearLayout.LayoutParams fullWidth() {
         return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
     }
@@ -310,7 +349,8 @@ public class MainActivity extends Activity {
         super.onActivityResult(requestCode, resultCode, data);
         if (resultCode != RESULT_OK || data == null || data.getData() == null) return;
         if (requestCode == REQ_PICK) loadInput(data.getData());
-        else if (requestCode == REQ_SAVE) copyOutputTo(data.getData());
+        else if (requestCode == REQ_SAVE) copyFileTo(outputFile, data.getData(), "MP4 guardado ✔");
+        else if (requestCode == REQ_SAVE_MIDI) copyFileTo(midiFile, data.getData(), "MIDI guardado ✔");
     }
 
     private void loadInput(final Uri uri) {
@@ -396,9 +436,12 @@ public class MainActivity extends Activity {
         stopPlayer();
         stopPreview();
         final int instrument = instrumentSpinner.getSelectedItemPosition();
+        final int level = notesSpinner.getSelectedItemPosition();
+        getPreferences(MODE_PRIVATE).edit().putInt("instrumento", instrument).putInt("notas", level).apply();
         setEnabled(pickBtn, false);
         setEnabled(convertBtn, false);
         instrumentSpinner.setEnabled(false);
+        notesSpinner.setEnabled(false);
         resultCard.setVisibility(View.GONE);
         progressBar.setVisibility(View.VISIBLE);
         progressBar.setProgress(0);
@@ -409,7 +452,7 @@ public class MainActivity extends Activity {
         final File in = inputFile;
         final String base = baseName(inputName);
         worker = new Thread(new Runnable() {
-            @Override public void run() { convert(in, base, instrument); }
+            @Override public void run() { convert(in, base, instrument, level); }
         }, "conversion");
         worker.start();
     }
@@ -435,30 +478,34 @@ public class MainActivity extends Activity {
         };
     }
 
-    private void convert(File in, String base, int instrument) {
+    private void convert(File in, String base, int instrument, int level) {
         String error = null;
-        File out = null;
+        File out = null, mid = null;
         int noteCount = 0;
         double seconds = 0;
         boolean truncated = false;
         try {
-            AudioDecoder.Result dec = AudioDecoder.decode(in, stage("Leyendo audio…", 0f, 0.2f));
+            AudioDecoder.Result dec = AudioDecoder.decode(in, stage("Leyendo audio…", 0f, 0.12f));
             truncated = dec.truncated;
             seconds = (double) dec.length / dec.sampleRate;
-            float[] x = Resampler.resample(dec.pcm, dec.length, dec.sampleRate, MelodyExtractor.SAMPLE_RATE,
-                    stage("Preparando…", 0.2f, 0.27f));
+            float[] x = Resampler.resample(dec.pcm, dec.length, dec.sampleRate, BasicPitch.SR,
+                    stage("Preparando…", 0.12f, 0.16f));
             dec = null;
-            MelodyExtractor.Result mel = new MelodyExtractor().extract(x, stage("Buscando la melodía…", 0.27f, 0.7f));
+            float[][] act = transcribe(x, stage("Reconociendo las notas…", 0.16f, 0.74f));
             x = null;
-            List<Note> notes = mel.notes;
+            List<Note> notes = BasicPitch.notes(act[0], act[1], act[0].length / BasicPitch.KEYS,
+                    BasicPitch.Settings.forSensitivity(level));
+            act = null;
             noteCount = notes.size();
-            if (noteCount == 0) throw new IOException("No se ha encontrado ninguna melodía en el audio.");
-            float[] y = new Synth(instrument, OUT_RATE).render(notes, seconds, stage("Tocando con " + Synth.NAMES[instrument] + "…", 0.7f, 0.85f));
+            if (noteCount == 0) throw new IOException("No se ha encontrado ninguna nota en el audio.");
             File dir = ShareProvider.outDir(this);
             File[] old = dir.listFiles();
             if (old != null) for (File f : old) f.delete();
-            out = new File(dir, safe(base) + "_melodia_" + safe(Synth.NAMES[instrument]) + ".mp4");
-            Mp4Writer.write(y, OUT_RATE, out, stage("Creando MP4…", 0.85f, 1f));
+            mid = new File(dir, safe(base) + "_notas.mid");
+            writeBytes(mid, MidiWriter.toBytes(notes, Synth.GM_PROGRAM[instrument]));
+            float[] y = new Synth(instrument, OUT_RATE).render(notes, seconds, stage("Tocando con " + Synth.NAMES[instrument] + "…", 0.74f, 0.86f));
+            out = new File(dir, safe(base) + "_notas_" + safe(Synth.NAMES[instrument]) + ".mp4");
+            Mp4Writer.write(y, OUT_RATE, out, stage("Creando MP4…", 0.86f, 1f));
         } catch (Progress.Cancelled c) {
             error = "Conversión cancelada.";
         } catch (OutOfMemoryError oom) {
@@ -468,21 +515,90 @@ public class MainActivity extends Activity {
             error = "Error: " + (m != null ? m : t.getClass().getSimpleName());
         }
         final String err = error;
-        final File result = out;
+        final File result = out, midiResult = mid;
         final int nNotes = noteCount;
         final double secs = seconds;
         final boolean trunc = truncated;
         ui.post(new Runnable() {
-            @Override public void run() { finishConversion(err, result, nNotes, secs, trunc); }
+            @Override public void run() { finishConversion(err, result, midiResult, nNotes, secs, trunc); }
         });
     }
 
-    private void finishConversion(String err, File result, int notes, double secs, boolean trunc) {
+    /** Ejecuta Basic Pitch por ventanas en varios hilos. Devuelve {notas, ataques} (tramas x 88). */
+    private float[][] transcribe(float[] x, final Progress p) throws Exception {
+        synchronized (MainActivity.class) {
+            if (model == null) model = WeightFile.parse(readAsset("bp.bin"));
+        }
+        final BasicPitch bp = new BasicPitch(model);
+        bp.prepare(x);
+        final int frames = bp.frameCount();
+        final int windows = bp.windowCount();
+        final float[] note = new float[frames * BasicPitch.KEYS];
+        final float[] onset = new float[frames * BasicPitch.KEYS];
+        final AtomicInteger next = new AtomicInteger(), done = new AtomicInteger();
+        final Throwable[] failure = new Throwable[1];
+        int threads = Math.max(1, Math.min(4, Runtime.getRuntime().availableProcessors()));
+        Thread[] pool = new Thread[threads];
+        for (int k = 0; k < threads; k++) {
+            pool[k] = new Thread(new Runnable() {
+                @Override public void run() {
+                    try {
+                        BasicPitch.Workspace ws = bp.newWorkspace();
+                        int w;
+                        while (!p.isCancelled() && failure[0] == null && (w = next.getAndIncrement()) < windows) {
+                            bp.runWindow(w, ws, note, onset);
+                            done.incrementAndGet();
+                        }
+                    } catch (Throwable t) {
+                        synchronized (failure) { if (failure[0] == null) failure[0] = t; }
+                    }
+                }
+            }, "notas-" + k);
+            pool[k].setPriority(Thread.NORM_PRIORITY - 1);
+            pool[k].start();
+        }
+        for (Thread t : pool) {
+            while (t.isAlive()) {
+                t.join(100);
+                p.update((float) done.get() / windows);
+            }
+        }
+        if (p.isCancelled()) throw new Progress.Cancelled();
+        if (failure[0] instanceof OutOfMemoryError) throw (OutOfMemoryError) failure[0];
+        if (failure[0] != null) throw new IOException(failure[0].toString());
+        p.update(1f);
+        return new float[][]{note, onset};
+    }
+
+    private byte[] readAsset(String name) throws IOException {
+        InputStream in = getAssets().open(name);
+        try {
+            java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream(1 << 18);
+            byte[] buf = new byte[1 << 16];
+            int n;
+            while ((n = in.read(buf)) > 0) bo.write(buf, 0, n);
+            return bo.toByteArray();
+        } finally {
+            closeQuietly(in);
+        }
+    }
+
+    private static void writeBytes(File f, byte[] data) throws IOException {
+        FileOutputStream fo = new FileOutputStream(f);
+        try {
+            fo.write(data);
+        } finally {
+            fo.close();
+        }
+    }
+
+    private void finishConversion(String err, File result, File midi, int notes, double secs, boolean trunc) {
         busy = false;
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         setEnabled(pickBtn, true);
         setEnabled(convertBtn, inputFile != null);
         instrumentSpinner.setEnabled(true);
+        notesSpinner.setEnabled(true);
         cancelBtn.setVisibility(View.GONE);
         progressBar.setVisibility(View.GONE);
         if (err != null) {
@@ -491,11 +607,12 @@ public class MainActivity extends Activity {
             return;
         }
         outputFile = result;
+        midiFile = midi;
         status.setTextColor(C_TEXT);
         status.setText("¡Listo!");
         int m = (int) (secs / 60), s = (int) (secs % 60);
-        String info = String.format(Locale.getDefault(), "%s\n%d notas · %d:%02d · %.1f MB",
-                result.getName(), notes, m, s, result.length() / 1048576.0);
+        String info = String.format(Locale.getDefault(), "%s\n%s\n%d notas · %d:%02d · MP4 %.1f MB · MIDI %d KB",
+                result.getName(), midi.getName(), notes, m, s, result.length() / 1048576.0, (midi.length() + 1023) / 1024);
         if (trunc) info += "\n(Solo se han procesado los primeros " + AudioDecoder.MAX_SECONDS / 60 + " minutos.)";
         resultInfo.setText(info);
         playBtn.setText("▶  Reproducir");
@@ -549,21 +666,20 @@ public class MainActivity extends Activity {
         if (playBtn != null) playBtn.setText("▶  Reproducir");
     }
 
-    private void saveOutput() {
-        if (outputFile == null) return;
+    private void saveFile(File f, String mime, int request) {
+        if (f == null) return;
         Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT);
         i.addCategory(Intent.CATEGORY_OPENABLE);
-        i.setType("video/mp4");
-        i.putExtra(Intent.EXTRA_TITLE, outputFile.getName());
+        i.setType(mime);
+        i.putExtra(Intent.EXTRA_TITLE, f.getName());
         try {
-            startActivityForResult(i, REQ_SAVE);
+            startActivityForResult(i, request);
         } catch (Exception e) {
             toast("No hay ninguna app para guardar archivos. Usa «Compartir».");
         }
     }
 
-    private void copyOutputTo(final Uri dest) {
-        final File src = outputFile;
+    private void copyFileTo(final File src, final Uri dest, final String okMessage) {
         if (src == null) return;
         new Thread(new Runnable() {
             @Override public void run() {
@@ -579,7 +695,7 @@ public class MainActivity extends Activity {
                     int n;
                     while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
                     out.flush();
-                    msg = "MP4 guardado ✔";
+                    msg = okMessage;
                 } catch (Exception e) {
                     msg = "No se pudo guardar: " + e.getMessage();
                 } finally {
@@ -594,16 +710,16 @@ public class MainActivity extends Activity {
         }).start();
     }
 
-    private void shareOutput() {
-        if (outputFile == null) return;
-        Uri uri = ShareProvider.uriFor(this, outputFile);
+    private void shareFile(File f, String mime, String title) {
+        if (f == null) return;
+        Uri uri = ShareProvider.uriFor(this, f);
         Intent i = new Intent(Intent.ACTION_SEND);
-        i.setType("video/mp4");
+        i.setType(mime);
         i.putExtra(Intent.EXTRA_STREAM, uri);
-        i.setClipData(ClipData.newRawUri(outputFile.getName(), uri));
+        i.setClipData(ClipData.newRawUri(f.getName(), uri));
         i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         try {
-            startActivity(Intent.createChooser(i, "Compartir MP4"));
+            startActivity(Intent.createChooser(i, title));
         } catch (Exception e) {
             toast("No hay apps para compartir.");
         }

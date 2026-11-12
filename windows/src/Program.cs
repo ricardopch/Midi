@@ -5,12 +5,12 @@ using System.Threading;
 using System.Windows.Forms;
 
 [assembly: AssemblyTitle("Melodía MIDI")]
-[assembly: AssemblyDescription("Saca la melodía de una canción y crea un MP4 tocado con un instrumento")]
+[assembly: AssemblyDescription("Pasa a notas una canción y crea un MP4 tocado con un instrumento y su archivo MIDI")]
 [assembly: AssemblyProduct("Melodía MIDI")]
 [assembly: AssemblyCompany("ricardopch")]
 [assembly: AssemblyCopyright("ricardopch 2026")]
-[assembly: AssemblyVersion("1.0.0.0")]
-[assembly: AssemblyFileVersion("1.0.0.0")]
+[assembly: AssemblyVersion("2.0.0.0")]
+[assembly: AssemblyFileVersion("2.0.0.0")]
 [assembly: ComVisible(false)]
 [assembly: System.Runtime.Versioning.TargetFramework(".NETFramework,Version=v4.5", FrameworkDisplayName = ".NET Framework 4.5")]
 

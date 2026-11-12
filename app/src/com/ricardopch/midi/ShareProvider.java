@@ -12,7 +12,7 @@ import android.provider.OpenableColumns;
 import java.io.File;
 import java.io.FileNotFoundException;
 
-/** Sirve los MP4 generados (carpeta cache/out) para compartirlos con otras apps. */
+/** Sirve los MP4 y MIDI generados (carpeta cache/out) para compartirlos con otras apps. */
 public class ShareProvider extends ContentProvider {
 
     static Uri uriFor(Context c, File f) {
@@ -74,7 +74,10 @@ public class ShareProvider extends ContentProvider {
     }
 
     @Override
-    public String getType(Uri uri) { return "video/mp4"; }
+    public String getType(Uri uri) {
+        String name = uri.getLastPathSegment();
+        return name != null && name.toLowerCase(java.util.Locale.US).endsWith(".mid") ? "audio/midi" : "video/mp4";
+    }
 
     @Override
     public Uri insert(Uri uri, ContentValues values) { return null; }

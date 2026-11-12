@@ -11,7 +11,7 @@ KSPASS=${KEYSTORE_PASS:-melodia2026}
 OUT=${1:-MelodiaMIDI.apk}
 B=build
 rm -rf "$B"; mkdir -p "$B/gen" "$B/obj"
-aapt package -f -m -J "$B/gen" -M app/AndroidManifest.xml -S app/res -I "$J34" -F "$B/app.unsigned.apk"
+aapt package -f -m -J "$B/gen" -M app/AndroidManifest.xml -S app/res -A app/assets -I "$J34" -F "$B/app.unsigned.apk"
 # Se compila contra la API 23 para garantizar compatibilidad con Android 6+
 javac -nowarn -source 8 -target 8 -encoding UTF-8 -bootclasspath "$J23" -d "$B/obj" $(find app/src "$B/gen" -name '*.java') 2>&1 | grep -v -E "Picked up|warning|^[0-9]+ warning" || true
 [ -f "$B/obj/com/ricardopch/midi/MainActivity.class" ] || { echo "javac falló"; exit 1; }

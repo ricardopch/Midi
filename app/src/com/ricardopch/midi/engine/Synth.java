@@ -15,6 +15,9 @@ public final class Synth {
             "Clarinete", "Trompeta", "Marimba", "Caja de música", "Chiptune 8 bits", "Sintetizador"
     };
 
+    /** Programa General MIDI equivalente a cada instrumento (para el archivo .mid). */
+    public static final int[] GM_PROGRAM = {0, 4, 16, 24, 73, 40, 71, 56, 12, 10, 80, 81};
+
     private static final double[] REVERB_WET = {0.14, 0.12, 0.12, 0.12, 0.16, 0.18, 0.13, 0.13, 0.12, 0.16, 0.05, 0.13};
 
     private final int sr;

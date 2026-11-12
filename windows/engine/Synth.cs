@@ -1,6 +1,7 @@
 // Generado desde el motor Java con tools/java2cs.py. No editar a mano.
 using System;
 using System.Collections.Generic;
+using System.IO;
 
 namespace MelodiaMidi.Engine
 {
@@ -13,6 +14,9 @@ public sealed class Synth {
             "Piano", "Piano eléctrico", "Órgano", "Guitarra", "Flauta", "Violín",
             "Clarinete", "Trompeta", "Marimba", "Caja de música", "Chiptune 8 bits", "Sintetizador"
     };
+
+    /** Programa General MIDI equivalente a cada instrumento (para el archivo .mid). */
+    public static readonly int[] GM_PROGRAM = {0, 4, 16, 24, 73, 40, 71, 56, 12, 10, 80, 81};
 
     private static readonly double[] REVERB_WET = {0.14, 0.12, 0.12, 0.12, 0.16, 0.18, 0.13, 0.13, 0.12, 0.16, 0.05, 0.13};
 
