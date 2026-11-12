@@ -5,11 +5,11 @@ Coge una canción (MP3, M4A, WAV, OGG, FLAC… o un vídeo), pasa a notas **todo
 - un **MP3** con esas notas tocadas al estilo MIDI con **un solo instrumento** a elegir, y
 - el **archivo MIDI (.mid)**, para abrirlo en MuseScore, GarageBand, FL Studio, Ableton…
 
-En Windows hay además la opción **MuScriptor**, que reconoce qué instrumento toca cada nota y pone cada uno en su pista del MIDI.
+En Windows hay además dos opciones con el MIDI en varias pistas: **Spleeter** (separa voz, batería, bajo y resto) y **MuScriptor** (reconoce qué instrumento toca cada nota).
 
 **Descargas:**
 - Android: [MelodiaMIDI.apk](MelodiaMIDI.apk) (200 KB, Android 6.0 o superior)
-- Windows: [MelodiaMIDI.exe](MelodiaMIDI.exe) (300 KB, Windows 7, 8, 10 u 11; no necesita instalación)
+- Windows: [MelodiaMIDI.exe](MelodiaMIDI.exe) (320 KB, Windows 7, 8, 10 u 11; no necesita instalación)
 
 ## Uso (Android)
 
@@ -30,8 +30,19 @@ El MP3 (128 kbps) y el MIDI duran lo mismo que la canción original, así que la
 Doble clic en `MelodiaMIDI.exe` (no hace falta instalar nada; usa .NET Framework 4.5 o posterior, que ya viene con Windows 10 y 11).
 
 1. **Elegir archivo de audio…** o arrastrar la canción a la ventana (o sobre el icono del .exe).
-2. Elegir el **instrumento**, el **reconocimiento** (Basic Pitch o MuScriptor) y, con Basic Pitch, la **cantidad de notas**.
+2. Elegir el **instrumento**, el **reconocimiento** y la **cantidad de notas** (con Basic Pitch y Spleeter):
+   - *Basic Pitch (1 pista)*: rápido, todo va dentro del programa.
+   - *Spleeter (4 pistas)*: separa la canción en voz, batería, bajo y resto, y cada parte va a su pista del MIDI.
+   - *MuScriptor (instrumentos)*: una pista por instrumento reconocido.
 3. **Crear MP3 y MIDI…**: pregunta dónde guardar el MP3 (propone la carpeta de la canción) y guarda el `.mid` al lado, con el mismo nombre. Después: *Reproducir*, *Abrir MP3*, *Abrir MIDI* o *Carpeta*.
+
+### Spleeter (voz, batería, bajo y resto)
+
+[Spleeter](https://github.com/deezer/spleeter) (Deezer, licencia MIT) separa la canción en cuatro partes con cuatro redes U-Net. Después, Basic Pitch saca las notas de la voz, el bajo y el resto, y un detector de golpes saca el bombo, la caja y el charles de la batería. El MIDI sale con las pistas *Voz*, *Bajo*, *Resto* (con el instrumento elegido) y *Bateria* (canal de percusión). El MP3 toca con el instrumento elegido las notas de las tres primeras.
+
+La primera vez descarga el modelo oficial de Spleeter (146 MB, de la página de Deezer en GitHub), comprueba que está íntegro y lo guarda en `%LOCALAPPDATA%\MelodiaMIDI\spleeter`. No hace falta Python ni ninguna cuenta. La separación está reescrita en C# (`windows/src/Spleeter.cs`) y da el mismo resultado que el modelo original en TensorFlow.
+
+Limitaciones: no distingue guitarra de piano (van juntos en «resto») y la detección de batería es sencilla (bombo, caja y charles).
 
 ### MuScriptor (reconoce los instrumentos)
 

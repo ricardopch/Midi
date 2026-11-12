@@ -6,7 +6,7 @@ using System.IO;
 namespace MelodiaMidi.Engine
 {
 /**
- * Archivo MIDI estándar (SMF tipo 0) con las notas en el canal 1.
+ * Archivo MIDI estándar: SMF tipo 0 (una pista, canal 1) o tipo 1 (una pista por instrumento).
  * 480 pulsos por negra a 120 ppm, es decir, 960 pulsos por segundo: los tiempos coinciden con el MP4.
  */
 public sealed class MidiWriter {
@@ -16,8 +16,81 @@ public sealed class MidiWriter {
     private byte[] buf = new byte[4096];
     private int len;
 
-    /** gmProgram: instrumento General MIDI (0-127), por ejemplo Synth.GM_PROGRAM[i]. */
+    /** gmProgram: instrumento General MIDI (0-127), por ejemplo Synth.GM_PROGRAM[i]. Una sola pista (SMF tipo 0). */
     public static byte[] toBytes(List<Note> notes, int gmProgram) {
+        MidiWriter w = new MidiWriter();
+        w.header(0, 1);
+        int lenPos = w.beginTrack();
+        w.conductor();
+        w.trackName("Melodia MIDI");
+        w.notesTrack(notes, 0, gmProgram);
+        w.endTrack(lenPos);
+        return w.bytes();
+    }
+
+    /**
+     * Varias pistas (SMF tipo 1): una por instrumento. channels[k] = 9 indica batería (canal de percusión);
+     * names en ASCII.
+     */
+    public static byte[] toBytesTracks(List<List<Note>> tracks, int[] programs, int[] channels, string[] names) {
+        MidiWriter w = new MidiWriter();
+        int n = tracks.Count;
+        w.header(1, n + 1);
+        int lenPos = w.beginTrack();
+        w.conductor();
+        w.trackName("Melodia MIDI");
+        w.endTrack(lenPos);
+        for (int k = 0; k < n; k++) {
+            lenPos = w.beginTrack();
+            w.trackName(names[k]);
+            w.notesTrack(tracks[k], channels[k], channels[k] == 9 ? -1 : programs[k]);
+            w.endTrack(lenPos);
+        }
+        return w.bytes();
+    }
+
+    private void header(int format, int ntracks) {
+        ascii("MThd");
+        u32(6);
+        u16(format);
+        u16(ntracks);
+        u16(PPQ);
+    }
+
+    private int beginTrack() {
+        ascii("MTrk");
+        int lenPos = len;
+        u32(0);
+        return lenPos;
+    }
+
+    private void endTrack(int lenPos) {
+        varLen(0); put(0xFF); put(0x2F); put(0);
+        int trackLen = len - lenPos - 4;
+        buf[lenPos] = (byte) (trackLen >> 24);
+        buf[lenPos + 1] = (byte) (trackLen >> 16);
+        buf[lenPos + 2] = (byte) (trackLen >> 8);
+        buf[lenPos + 3] = (byte) trackLen;
+    }
+
+    /** Tempo (500000 µs por negra) y compás 4/4. */
+    private void conductor() {
+        varLen(0); put(0xFF); put(0x51); put(3); put(0x07); put(0xA1); put(0x20);
+        varLen(0); put(0xFF); put(0x58); put(4); put(4); put(2); put(24); put(8);
+    }
+
+    private void trackName(string name) {
+        varLen(0); put(0xFF); put(0x03); varLen(name.Length); ascii(name);
+    }
+
+    private byte[] bytes() {
+        byte[] @out = new byte[len];
+        Array.Copy(buf, 0, @out, 0, len);
+        return @out;
+    }
+
+    /** Programa (si program >= 0) y notas de una pista en el canal indicado. */
+    private void notesTrack(List<Note> notes, int channel, int program) {
         int n = notes.Count;
         int[] pitch = new int[n], on = new int[n], off = new int[n], vel = new int[n];
         long[] key = new long[n];
@@ -57,42 +130,18 @@ public sealed class MidiWriter {
         long[] sorted = new long[m];
         Array.Copy(ev, 0, sorted, 0, m);
         Array.Sort(sorted);
-
-        MidiWriter w = new MidiWriter();
-        w.ascii("MThd");
-        w.u32(6);
-        w.u16(0);
-        w.u16(1);
-        w.u16(PPQ);
-        w.ascii("MTrk");
-        int lenPos = w.len;
-        w.u32(0);
-        int start = w.len;
-        // nombre de la pista, tempo (500000 µs por negra), compás 4/4 e instrumento
-        w.varLen(0); w.put(0xFF); w.put(0x03); w.put(12); w.ascii("Melodia MIDI");
-        w.varLen(0); w.put(0xFF); w.put(0x51); w.put(3); w.put(0x07); w.put(0xA1); w.put(0x20);
-        w.varLen(0); w.put(0xFF); w.put(0x58); w.put(4); w.put(4); w.put(2); w.put(24); w.put(8);
-        w.varLen(0); w.put(0xC0); w.put(Math.Max(0, Math.Min(127, gmProgram)));
+        if (program >= 0) { varLen(0); put(0xC0 | channel); put(Math.Max(0, Math.Min(127, program))); }
         long last = 0;
         for (int k = 0; k < m; k++) {
             long e = sorted[k];
             long t = e >> 21;
             int i = (int) (e & 0xFFFFF);
             bool isOn = (e & (1L << 20)) != 0;
-            w.varLen((int) (t - last));
+            varLen((int) (t - last));
             last = t;
-            if (isOn) { w.put(0x90); w.put(pitch[i]); w.put(vel[i]); }
-            else { w.put(0x80); w.put(pitch[i]); w.put(64); }
+            if (isOn) { put(0x90 | channel); put(pitch[i]); put(vel[i]); }
+            else { put(0x80 | channel); put(pitch[i]); put(64); }
         }
-        w.varLen(0); w.put(0xFF); w.put(0x2F); w.put(0);
-        int trackLen = w.len - start;
-        w.buf[lenPos] = (byte) (trackLen >> 24);
-        w.buf[lenPos + 1] = (byte) (trackLen >> 16);
-        w.buf[lenPos + 2] = (byte) (trackLen >> 8);
-        w.buf[lenPos + 3] = (byte) trackLen;
-        byte[] @out = new byte[w.len];
-        Array.Copy(w.buf, 0, @out, 0, w.len);
-        return @out;
     }
 
     private void put(int v) {

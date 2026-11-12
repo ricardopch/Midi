@@ -15,7 +15,8 @@ namespace MelodiaMidi
     {
         private const int OutRate = 44100;
         private static readonly string[] NoteLevels = { "Menos notas", "Normal", "Más notas" };
-        private static readonly string[] Engines = { "Basic Pitch (rápido, incluido)", "MuScriptor (reconoce instrumentos)" };
+        private const int EngineBasicPitch = 0, EngineSpleeter = 1, EngineMuScriptor = 2;
+        private static readonly string[] Engines = { "Basic Pitch (1 pista)", "Spleeter (4 pistas)", "MuScriptor (instrumentos)" };
         private static WeightFile model;
         private static readonly object ModelLock = new object();
 
@@ -166,11 +167,14 @@ namespace MelodiaMidi
 
         private void UpdateEngineHint()
         {
-            bool mus = engine.SelectedIndex == 1;
-            noteLevel.Enabled = !mus && !busy;
-            engineHint.Text = mus
-                ? "MuScriptor pone cada instrumento en su pista del MIDI. Más lento; la 1.ª vez instala ≈ 1 GB y pide una cuenta gratuita de Hugging Face."
-                : "Basic Pitch saca todas las notas a una sola pista. ¿Faltan notas? Elige «Más notas». ¿Sobran? «Menos notas».";
+            int e = engine.SelectedIndex;
+            noteLevel.Enabled = e != EngineMuScriptor && !busy;
+            if (e == EngineMuScriptor)
+                engineHint.Text = "MuScriptor pone cada instrumento en su pista del MIDI. Más lento; la 1.ª vez instala ≈ 1 GB y pide una cuenta gratuita de Hugging Face.";
+            else if (e == EngineSpleeter)
+                engineHint.Text = "Spleeter separa voz, batería, bajo y resto, y cada parte va a su pista del MIDI. La 1.ª vez descarga su modelo (146 MB).";
+            else
+                engineHint.Text = "Basic Pitch saca todas las notas a una sola pista. ¿Faltan notas? Elige «Más notas». ¿Sobran? «Menos notas».";
         }
 
         /** Muestra u oculta la tarjeta de resultado y ajusta la altura de la ventana. */
@@ -297,7 +301,8 @@ namespace MelodiaMidi
             if (busy || inputPath == null) return;
             int inst = instrument.SelectedIndex;
             int level = noteLevel.SelectedIndex;
-            bool useMus = engine.SelectedIndex == 1;
+            int eng = engine.SelectedIndex;
+            bool useMus = eng == EngineMuScriptor;
             string token = null;
             if (useMus)
             {
@@ -340,7 +345,7 @@ namespace MelodiaMidi
             status.ForeColor = CMuted;
             status.Text = "Leyendo audio…";
             string src = inputPath;
-            Thread t = new Thread(delegate () { Convert(src, dest, inst, level, useMus, token); });
+            Thread t = new Thread(delegate () { Convert(src, dest, inst, level, eng, token); });
             t.IsBackground = true;
             t.Name = "conversion";
             t.Start();
@@ -378,7 +383,7 @@ namespace MelodiaMidi
             try { BeginInvoke(a); } catch (Exception) { }
         }
 
-        private void Convert(string src, string dest, int inst, int level, bool useMus, string token)
+        private void Convert(string src, string dest, int inst, int level, int eng, string token)
         {
             string error = null, written = null, midi = null, instruments = null;
             int notes = 0;
@@ -393,7 +398,13 @@ namespace MelodiaMidi
                 seconds = (double)input.Length / input.SampleRate;
                 List<Note> list;
                 midi = Path.ChangeExtension(dest, ".mid");
-                if (useMus)
+                if (eng == EngineSpleeter)
+                {
+                    list = SpleeterTracks(input, inst, level, midi, out instruments);
+                    input = null;
+                    notes = list.Count;
+                }
+                else if (eng == EngineMuScriptor)
                 {
                     work = Path.Combine(Path.GetTempPath(), "MelodiaMIDI_" + Guid.NewGuid().ToString("N"));
                     Directory.CreateDirectory(work);
@@ -432,6 +443,7 @@ namespace MelodiaMidi
                     File.WriteAllBytes(midi, MidiWriter.toBytes(list, Synth.GM_PROGRAM[inst]));
                 }
                 y = new Synth(inst, OutRate).render(list, seconds, new StageProgress(this, "Tocando con " + Synth.NAMES[inst] + "…", 0.85f, 0.93f));
+                list = null;
                 AudioIO.SaveMp3(y, OutRate, dest, new StageProgress(this, "Creando el MP3…", 0.93f, 1f));
                 written = dest;
             }
@@ -461,6 +473,101 @@ namespace MelodiaMidi
             string midiFile = error == null || File.Exists(midi ?? "") ? midi : null;
             string inst2 = instruments;
             Ui(delegate { Finish(error, written, midiFile, inst2, result, notes, seconds, truncated); });
+        }
+
+        /**
+         * Separa con Spleeter y saca las notas de cada parte: Basic Pitch para voz, bajo y resto; golpes para la batería.
+         * Escribe el MIDI de 4 pistas y devuelve las notas con altura para el MP3.
+         */
+        private List<Note> SpleeterTracks(AudioIO.Input input, int inst, int level, string midiPath, out string summary)
+        {
+            const int Sr = 44100;
+            float[] y;
+            if (input.SampleRate == Sr)
+            {
+                y = new float[input.Length];
+                Array.Copy(input.Samples, y, input.Length);
+            }
+            else y = Resampler.resample(input.Samples, input.Length, input.SampleRate, Sr, new StageProgress(this, "Preparando…", 0.1f, 0.12f));
+            int len = y.Length;
+            double mixRms = 0;
+            for (int i = 0; i < len; i++) mixRms += (double)y[i] * y[i];
+            mixRms = Math.Sqrt(mixRms / Math.Max(1, len));
+
+            Action<string> say = delegate (string msg) { Ui(delegate { if (busy) status.Text = msg; }); };
+            if (!Spleeter.ModelReady()) Spleeter.EnsureModel(say, new StageProgress(this, "Descargando el modelo de separación…", 0.12f, 0.2f));
+            Spleeter sp = Spleeter.Load();
+            float[][] stems = sp.Separate(y, len, new StageProgress(this, "Separando voz, batería, bajo y resto…", 0.2f, 0.6f));
+            y = null;
+
+            List<Note> drums = DrumDetector.Detect(stems[Spleeter.Drums], len, Sr);
+            stems[Spleeter.Drums] = null;
+
+            int[] order = { Spleeter.Vocals, Spleeter.Bass, Spleeter.Other };
+            int[] lo = { 36, 24, 21 }, hi = { 96, 67, 108 };
+            string[] label = { "voz", "bajo", "resto" };
+            List<Note>[] parts = new List<Note>[3];
+            for (int j = 0; j < 3; j++)
+            {
+                float[] st = stems[order[j]];
+                stems[order[j]] = null;
+                Gate(st, mixRms);
+                float a = 0.6f + 0.08f * j;
+                float[] x22 = Resampler.resample(st, len, Sr, BasicPitch.SR, null);
+                st = null;
+                float[][] act = Transcribe(x22, new StageProgress(this, "Notas de la parte de " + label[j] + "…", a, a + 0.08f));
+                BasicPitch.Settings set = BasicPitch.Settings.forSensitivity(level);
+                set.minMidi = lo[j];
+                set.maxMidi = hi[j];
+                parts[j] = BasicPitch.notes(act[0], act[1], act[0].Length / BasicPitch.KEYS, set);
+            }
+
+            List<List<Note>> tracks = new List<List<Note>>();
+            List<int> programs = new List<int>(), channels = new List<int>();
+            List<string> names = new List<string>();
+            string[] trackNames = { "Voz", "Bajo", "Resto" };
+            int[] gm = { 53, 33, Synth.GM_PROGRAM[inst] };      // voz «oohs», bajo eléctrico, instrumento elegido
+            List<string> sum = new List<string>();
+            for (int j = 0; j < 3; j++)
+            {
+                sum.Add(label[j] + " " + parts[j].Count);
+                if (parts[j].Count == 0) continue;
+                tracks.Add(parts[j]);
+                programs.Add(gm[j]);
+                channels.Add(j);
+                names.Add(trackNames[j]);
+            }
+            sum.Add("batería " + drums.Count + " golpes");
+            if (drums.Count > 0)
+            {
+                tracks.Add(drums);
+                programs.Add(0);
+                channels.Add(9);
+                names.Add("Bateria");
+            }
+            if (tracks.Count == 0) throw new IOException("No se ha encontrado ninguna nota en el audio.");
+            File.WriteAllBytes(midiPath, MidiWriter.toBytesTracks(tracks, programs.ToArray(), channels.ToArray(), names.ToArray()));
+            summary = string.Join(", ", sum.ToArray());
+
+            List<Note> all = new List<Note>();
+            for (int j = 0; j < 3; j++) all.AddRange(parts[j]);
+            if (all.Count == 0) throw new IOException("Solo se ha encontrado batería: el MIDI se ha guardado, pero no hay notas para el MP3.");
+            return all;
+        }
+
+        /** Silencia los tramos casi vacíos de una pista separada, para que Basic Pitch no invente notas en el ruido. */
+        private static void Gate(float[] x, double mixRms)
+        {
+            const int B = 2048;
+            double thr = mixRms * 0.0126;                        // unos 38 dB por debajo de la mezcla
+            for (int s = 0; s < x.Length; s += B)
+            {
+                int e = Math.Min(x.Length, s + B);
+                double acc = 0;
+                for (int i = s; i < e; i++) acc += (double)x[i] * x[i];
+                if (Math.Sqrt(acc / (e - s)) < thr)
+                    for (int i = s; i < e; i++) x[i] = 0f;
+            }
         }
 
         private static WeightFile Model()
@@ -555,7 +662,7 @@ namespace MelodiaMidi
             int m = (int)(secs / 60), s = (int)(secs % 60);
             string info = Path.GetFileName(written) + "  ·  " + (size / 1048576.0).ToString("0.0") + " MB\n"
                 + Path.GetFileName(midi) + "  ·  " + notes + " notas  ·  " + m + ":" + s.ToString("00");
-            if (!string.IsNullOrEmpty(instruments)) info += "\nInstrumentos: " + instruments;
+            if (!string.IsNullOrEmpty(instruments)) info += "\n" + (instruments.StartsWith("voz ") ? "Pistas: " : "Instrumentos: ") + instruments;
             if (truncated) info += "\nSolo se han procesado los primeros " + AudioIO.MaxSeconds / 60 + " minutos.";
             resultInfo.Text = info;
             ShowResult(true);
