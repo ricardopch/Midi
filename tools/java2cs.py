@@ -7,7 +7,7 @@ import os
 import re
 import sys
 
-FILES = ["BasicPitch", "WeightFile", "MidiWriter", "Mp3Encoder", "Synth", "Resampler"]
+FILES = ["BasicPitch", "WeightFile", "MidiWriter", "Mp3Encoder", "Synth", "DrumKit", "Resampler"]
 
 KEYWORDS = ["out", "in", "base", "lock", "ref", "params", "object", "event", "checked", "fixed",
             "operator", "is", "as", "internal", "readonly", "sealed", "unchecked", "virtual",

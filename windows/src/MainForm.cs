@@ -34,7 +34,8 @@ namespace MelodiaMidi
 
         private Label fileInfo, status, resultInfo;
         private ComboBox instrument, noteLevel, engine;
-        private Label engineHint;
+        private Label engineHint, pctLabel;
+        private CheckBox multiMp3;
         private Button pickBtn, previewBtn, convertBtn, cancelBtn, playBtn, folderBtn, openBtn, openMidiBtn;
         private ProgressBar progress;
         private Panel resultCard;
@@ -99,7 +100,7 @@ namespace MelodiaMidi
             y += 120 + 12;
 
             // 2. Instrumento, reconocimiento y cantidad de notas
-            Panel c2 = Card("2 · Instrumento y notas", M, y, W, 172);
+            Panel c2 = Card("2 · Instrumento y notas", M, y, W, 198);
             instrument = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(S(16), S(48)), Size = new Size(S(250), S(30)), Font = new Font(fontName, 11f) };
             instrument.Items.AddRange(Synth.NAMES);
             instrument.SelectedIndex = 0;
@@ -118,9 +119,19 @@ namespace MelodiaMidi
             c2.Controls.Add(noteLevel);
             engineHint = MakeLabel("", 16, 128, W - 32, 40, CMuted, 8.5f);
             c2.Controls.Add(engineHint);
+            multiMp3 = new CheckBox
+            {
+                Text = "En el MP3, cada pista con su instrumento (y la batería)",
+                Checked = true,
+                Location = new Point(S(16), S(168)),
+                Size = new Size(S(W - 32), S(24)),
+                Font = new Font(fontName, 9f),
+                ForeColor = CText
+            };
+            c2.Controls.Add(multiMp3);
             engine.SelectedIndexChanged += delegate { UpdateEngineHint(); };
             UpdateEngineHint();
-            y += 172 + 12;
+            y += 198 + 12;
 
             // 3. Crear
             Panel c3 = Card("3 · Crear el MP3 y el MIDI", M, y, W, 150);
@@ -128,8 +139,10 @@ namespace MelodiaMidi
             convertBtn.Click += delegate { StartConversion(); };
             SetEnabled(convertBtn, false);
             c3.Controls.Add(convertBtn);
-            progress = new ProgressBar { Location = new Point(S(16), S(94)), Size = new Size(S(W - 32 - 110), S(18)), Maximum = 1000, Visible = false };
+            progress = new ProgressBar { Location = new Point(S(16), S(94)), Size = new Size(S(W - 32 - 110 - 56), S(18)), Maximum = 1000, Visible = false };
+            pctLabel = new Label { Text = "0 %", Location = new Point(S(16 + W - 32 - 110 - 50), S(93)), Size = new Size(S(48), S(20)), TextAlign = ContentAlignment.MiddleRight, Font = new Font(fontName, 9.5f, FontStyle.Bold), ForeColor = CPrimaryDark, Visible = false };
             c3.Controls.Add(progress);
+            c3.Controls.Add(pctLabel);
             cancelBtn = MakeButton("Cancelar", false, W - 16 - 100, 88, 100);
             cancelBtn.Height = S(30);
             cancelBtn.Visible = false;
@@ -141,17 +154,17 @@ namespace MelodiaMidi
 
             // Resultado
             resultTopY = y;
-            resultCard = Card("Resultado", M, y, W, 150);
-            resultInfo = MakeLabel("", 16, 40, W - 32, 56, CText, 9f);
+            resultCard = Card("Resultado", M, y, W, 176);
+            resultInfo = MakeLabel("", 16, 40, W - 32, 80, CText, 9f);
             resultCard.Controls.Add(resultInfo);
             int bw = (W - 32 - 3 * 8) / 4;
-            playBtn = MakeButton("Reproducir", true, 16, 100, bw);
+            playBtn = MakeButton("Reproducir", true, 16, 126, bw);
             playBtn.Click += delegate { TogglePlay(); };
-            openBtn = MakeButton("Abrir MP3", false, 16 + bw + 8, 100, bw);
+            openBtn = MakeButton("Abrir MP3", false, 16 + bw + 8, 126, bw);
             openBtn.Click += delegate { OpenWithDefault(outputPath); };
-            openMidiBtn = MakeButton("Abrir MIDI", false, 16 + 2 * (bw + 8), 100, bw);
+            openMidiBtn = MakeButton("Abrir MIDI", false, 16 + 2 * (bw + 8), 126, bw);
             openMidiBtn.Click += delegate { OpenWithDefault(midiPath); };
-            folderBtn = MakeButton("Carpeta", false, 16 + 3 * (bw + 8), 100, bw);
+            folderBtn = MakeButton("Carpeta", false, 16 + 3 * (bw + 8), 126, bw);
             folderBtn.Click += delegate { OpenFolder(); };
             resultCard.Controls.Add(playBtn);
             resultCard.Controls.Add(openBtn);
@@ -169,6 +182,7 @@ namespace MelodiaMidi
         {
             int e = engine.SelectedIndex;
             noteLevel.Enabled = e != EngineMuScriptor && !busy;
+            if (multiMp3 != null) multiMp3.Enabled = e != EngineBasicPitch && !busy;
             if (e == EngineMuScriptor)
                 engineHint.Text = "MuScriptor pone cada instrumento en su pista del MIDI. Más lento; la 1.ª vez instala ≈ 1 GB y pide una cuenta gratuita de Hugging Face.";
             else if (e == EngineSpleeter)
@@ -182,7 +196,7 @@ namespace MelodiaMidi
         {
             const int W = 520, M = 18;
             resultCard.Visible = show;
-            int y = resultTopY + (show ? 150 + 12 : 0);
+            int y = resultTopY + (show ? 176 + 12 : 0);
             tip.Location = new Point(S(M + 2) + AutoScrollPosition.X, S(y) + AutoScrollPosition.Y);
             int want = S(y + 44 + 10);
             // en pantallas bajas, la ventana se limita a la altura disponible y aparece una barra de desplazamiento
@@ -338,14 +352,18 @@ namespace MelodiaMidi
             instrument.Enabled = false;
             noteLevel.Enabled = false;
             engine.Enabled = false;
+            multiMp3.Enabled = false;
             ShowResult(false);
             progress.Value = 0;
             progress.Visible = true;
+            pctLabel.Text = "0 %";
+            pctLabel.Visible = true;
             cancelBtn.Visible = true;
             status.ForeColor = CMuted;
             status.Text = "Leyendo audio…";
             string src = inputPath;
-            Thread t = new Thread(delegate () { Convert(src, dest, inst, level, eng, token); });
+            bool multi = multiMp3.Checked && eng != EngineBasicPitch;
+            Thread t = new Thread(delegate () { Convert(src, dest, inst, level, eng, token, multi); });
             t.IsBackground = true;
             t.Name = "conversion";
             t.Start();
@@ -371,7 +389,11 @@ namespace MelodiaMidi
                 if (now - lastTick < 80 && x < 1f) return;
                 lastTick = now;
                 int v = (int)(1000 * (from + (to - from) * Math.Max(0f, Math.Min(1f, x))));
-                f.Ui(delegate { f.progress.Value = Math.Max(0, Math.Min(1000, v)); });
+                f.Ui(delegate
+                {
+                    f.progress.Value = Math.Max(0, Math.Min(1000, v));
+                    f.pctLabel.Text = Math.Max(0, Math.Min(100, v / 10)) + " %";
+                });
             }
 
             public bool isCancelled() { return f.cancel; }
@@ -383,9 +405,36 @@ namespace MelodiaMidi
             try { BeginInvoke(a); } catch (Exception) { }
         }
 
-        private void Convert(string src, string dest, int inst, int level, int eng, string token)
+        /** Pistas para el MP3: notas, instrumento de la app (Synth.DRUMS = batería) y ganancia. */
+        private sealed class Mix
         {
-            string error = null, written = null, midi = null, instruments = null;
+            public readonly List<List<Note>> Tracks = new List<List<Note>>();
+            public readonly List<int> Inst = new List<int>();
+            public readonly List<float> Gain = new List<float>();
+
+            public void Add(List<Note> notes, int instrument, float gain)
+            {
+                if (notes.Count == 0) return;
+                Tracks.Add(notes);
+                Inst.Add(instrument);
+                Gain.Add(gain);
+            }
+
+            public string Describe()
+            {
+                List<string> l = new List<string>();
+                foreach (int i in Inst)
+                {
+                    string n = i == Synth.DRUMS ? "batería" : Synth.NAMES[i].ToLowerInvariant();
+                    if (!l.Contains(n)) l.Add(n);
+                }
+                return string.Join(", ", l.ToArray());
+            }
+        }
+
+        private void Convert(string src, string dest, int inst, int level, int eng, string token, bool multi)
+        {
+            string error = null, written = null, midi = null, instruments = null, sounds = null;
             int notes = 0;
             double seconds = 0;
             bool truncated = false;
@@ -397,12 +446,12 @@ namespace MelodiaMidi
                 truncated = input.Truncated;
                 seconds = (double)input.Length / input.SampleRate;
                 List<Note> list;
+                Mix mix = null;
                 midi = Path.ChangeExtension(dest, ".mid");
                 if (eng == EngineSpleeter)
                 {
-                    list = SpleeterTracks(input, inst, level, midi, out instruments);
+                    list = SpleeterTracks(input, inst, level, midi, out instruments, out mix, out notes);
                     input = null;
-                    notes = list.Count;
                 }
                 else if (eng == EngineMuScriptor)
                 {
@@ -414,20 +463,37 @@ namespace MelodiaMidi
                     File.WriteAllBytes(wav, WavFile.Build(mono, input.SampleRate));
                     mono = null;
                     input = null;
-                    Ui(delegate { progress.Style = ProgressBarStyle.Marquee; });
-                    byte[] mid = MuScriptor.Transcribe(wav, work, token,
+                    List<MuScriptor.Track> tracks = MuScriptor.Transcribe(wav, work, token, seconds,
                         delegate (string msg) { Ui(delegate { if (busy) status.Text = msg; }); },
                         new StageProgress(this, "Preparando MuScriptor…", 0.1f, 0.85f));
-                    Ui(delegate { progress.Style = ProgressBarStyle.Blocks; });
-                    File.WriteAllBytes(midi, mid);
-                    MidiReader mr = MidiReader.Parse(mid);
-                    list = mr.PitchedNotes();
-                    notes = mr.Notes.Count;
-                    List<string> names = new List<string>();
-                    foreach (string n in mr.TrackNames)
-                        if (n.Trim().Length > 0 && !names.Contains(n.Trim())) names.Add(n.Trim());
-                    instruments = string.Join(", ", names.ToArray());
-                    if (list.Count == 0) throw new IOException("MuScriptor no ha encontrado notas con altura (solo percusión o nada). El MIDI se ha guardado igualmente.");
+                    if (tracks.Count == 0) throw new IOException("MuScriptor no ha encontrado ninguna nota en el audio.");
+                    List<List<Note>> tn = new List<List<Note>>();
+                    int[] programs = new int[tracks.Count], channels = new int[tracks.Count];
+                    string[] names = new string[tracks.Count];
+                    int nextCh = 0;
+                    list = new List<Note>();
+                    mix = new Mix();
+                    for (int k = 0; k < tracks.Count; k++)
+                    {
+                        MuScriptor.Track tr = tracks[k];
+                        tn.Add(tr.Notes);
+                        programs[k] = tr.Program;
+                        names[k] = tr.Name;
+                        if (tr.Drums) channels[k] = 9;
+                        else
+                        {
+                            channels[k] = nextCh;
+                            nextCh = nextCh == 8 ? 10 : Math.Min(15, nextCh + 1);    // el canal 10 (9) es la batería
+                            list.AddRange(tr.Notes);
+                        }
+                        notes += tr.Notes.Count;
+                        bool bass = !tr.Drums && tr.Program >= 32 && tr.Program < 40;
+                        mix.Add(tr.Notes, tr.Drums ? Synth.DRUMS : Synth.forGmProgram(tr.Program), tr.Drums ? 0.8f : (bass ? 0.85f : 1f));
+                    }
+                    File.WriteAllBytes(midi, MidiWriter.toBytesTracks(tn, programs, channels, names));
+                    instruments = string.Join(", ", names);
+                    if (list.Count == 0 && !multi)
+                        throw new IOException("MuScriptor solo ha encontrado batería: el MIDI se ha guardado, pero no hay notas para tocar con un instrumento.");
                 }
                 else
                 {
@@ -442,8 +508,19 @@ namespace MelodiaMidi
                     if (notes == 0) throw new IOException("No se ha encontrado ninguna nota en el audio.");
                     File.WriteAllBytes(midi, MidiWriter.toBytes(list, Synth.GM_PROGRAM[inst]));
                 }
-                y = new Synth(inst, OutRate).render(list, seconds, new StageProgress(this, "Tocando con " + Synth.NAMES[inst] + "…", 0.85f, 0.93f));
+                if (multi && mix != null && mix.Tracks.Count > 0)
+                {
+                    y = Synth.renderTracks(mix.Tracks, mix.Inst.ToArray(), mix.Gain.ToArray(), OutRate, seconds,
+                        new StageProgress(this, "Tocando cada pista con su instrumento…", 0.85f, 0.93f));
+                    sounds = mix.Describe();
+                }
+                else
+                {
+                    if (list.Count == 0) throw new IOException("No hay notas con altura para tocar con un instrumento (solo batería).");
+                    y = new Synth(inst, OutRate).render(list, seconds, new StageProgress(this, "Tocando con " + Synth.NAMES[inst] + "…", 0.85f, 0.93f));
+                }
                 list = null;
+                mix = null;
                 AudioIO.SaveMp3(y, OutRate, dest, new StageProgress(this, "Creando el MP3…", 0.93f, 1f));
                 written = dest;
             }
@@ -467,19 +544,18 @@ namespace MelodiaMidi
             finally
             {
                 if (work != null) try { Directory.Delete(work, true); } catch (Exception) { }
-                Ui(delegate { progress.Style = ProgressBarStyle.Blocks; });
             }
             float[] result = y;
             string midiFile = error == null || File.Exists(midi ?? "") ? midi : null;
-            string inst2 = instruments;
-            Ui(delegate { Finish(error, written, midiFile, inst2, result, notes, seconds, truncated); });
+            string inst2 = instruments, sounds2 = sounds;
+            Ui(delegate { Finish(error, written, midiFile, inst2, sounds2, result, notes, seconds, truncated); });
         }
 
         /**
          * Separa con Spleeter y saca las notas de cada parte: Basic Pitch para voz, bajo y resto; golpes para la batería.
          * Escribe el MIDI de 4 pistas y devuelve las notas con altura para el MP3.
          */
-        private List<Note> SpleeterTracks(AudioIO.Input input, int inst, int level, string midiPath, out string summary)
+        private List<Note> SpleeterTracks(AudioIO.Input input, int inst, int level, string midiPath, out string summary, out Mix mix, out int total)
         {
             const int Sr = 44100;
             float[] y;
@@ -551,7 +627,12 @@ namespace MelodiaMidi
 
             List<Note> all = new List<Note>();
             for (int j = 0; j < 3; j++) all.AddRange(parts[j]);
-            if (all.Count == 0) throw new IOException("Solo se ha encontrado batería: el MIDI se ha guardado, pero no hay notas para el MP3.");
+            mix = new Mix();
+            mix.Add(parts[0], Synth.forGmProgram(gm[0]), 1f);
+            mix.Add(parts[1], Synth.forGmProgram(gm[1]), 0.85f);
+            mix.Add(parts[2], inst, 1f);
+            mix.Add(drums, Synth.DRUMS, 0.8f);
+            total = all.Count + drums.Count;
             return all;
         }
 
@@ -631,7 +712,7 @@ namespace MelodiaMidi
             return new float[][] { note, onset };
         }
 
-        private void Finish(string error, string written, string midi, string instruments, float[] result, int notes, double secs, bool truncated)
+        private void Finish(string error, string written, string midi, string instruments, string sounds, float[] result, int notes, double secs, bool truncated)
         {
             busy = false;
             SetEnabled(pickBtn, true);
@@ -640,6 +721,7 @@ namespace MelodiaMidi
             engine.Enabled = true;
             UpdateEngineHint();
             progress.Visible = false;
+            pctLabel.Visible = false;
             cancelBtn.Visible = false;
             if (error != null)
             {
@@ -663,6 +745,7 @@ namespace MelodiaMidi
             string info = Path.GetFileName(written) + "  ·  " + (size / 1048576.0).ToString("0.0") + " MB\n"
                 + Path.GetFileName(midi) + "  ·  " + notes + " notas  ·  " + m + ":" + s.ToString("00");
             if (!string.IsNullOrEmpty(instruments)) info += "\n" + (instruments.StartsWith("voz ") ? "Pistas: " : "Instrumentos: ") + instruments;
+            if (!string.IsNullOrEmpty(sounds)) info += "\nSonidos del MP3: " + sounds;
             if (truncated) info += "\nSolo se han procesado los primeros " + AudioIO.MaxSeconds / 60 + " minutos.";
             resultInfo.Text = info;
             ShowResult(true);

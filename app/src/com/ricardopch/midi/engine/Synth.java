@@ -31,12 +31,91 @@ public final class Synth {
         this.sr = sampleRate;
     }
 
+    /** Batería en lugar de instrumento, para renderTracks. */
+    public static final int DRUMS = -1;
+
     /** Renderiza todas las notas. minDuration: duración mínima del resultado (s). */
     public float[] render(List<Note> notes, double minDuration, Progress p) {
         if (p == null) p = Progress.NONE;
         double end = minDuration;
         for (Note n : notes) end = Math.max(end, n.end + 1.5);
         int len = (int) Math.ceil(end * sr) + sr / 2;
+        float[] out = renderRaw(notes, len, p);
+        normalize(out, 0.89f);
+        p.update(1f);
+        return out;
+    }
+
+    /**
+     * Mezcla varias pistas, cada una con su instrumento (DRUMS = batería). Cada pista se iguala en sonoridad
+     * y se multiplica por su ganancia; al final, la mezcla se normaliza con limitador.
+     */
+    public static float[] renderTracks(List<List<Note>> tracks, int[] instruments, float[] gains, int sampleRate,
+                                       double minDuration, Progress p) {
+        if (p == null) p = Progress.NONE;
+        double end = minDuration;
+        for (List<Note> t : tracks) for (Note n : t) end = Math.max(end, n.end + 1.5);
+        int len = (int) Math.ceil(end * sampleRate) + sampleRate / 2;
+        float[] mix = new float[len];
+        int nt = tracks.size();
+        for (int k = 0; k < nt; k++) {
+            if (p.isCancelled()) throw new Progress.Cancelled();
+            List<Note> notes = tracks.get(k);
+            if (notes.size() == 0) continue;
+            float[] y = instruments[k] == DRUMS ? DrumKit.render(notes, sampleRate, len)
+                    : new Synth(instruments[k], sampleRate).renderRaw(notes, len, Progress.NONE);
+            double rms = activeRms(y);
+            if (rms > 0) {
+                float g = (float) (0.2 / rms * gains[k]);
+                for (int i = 0; i < len; i++) mix[i] += y[i] * g;
+            }
+            p.update(0.95f * (k + 1) / nt);
+        }
+        normalize(mix, 0.89f);
+        p.update(1f);
+        return mix;
+    }
+
+    /** Instrumento de la app más parecido a un programa General MIDI (0-127). */
+    public static int forGmProgram(int program) {
+        int p = Math.max(0, Math.min(127, program));
+        if (p == 4 || p == 5) return EPIANO;
+        if (p < 8) return PIANO;
+        if (p <= 10 || p == 14) return MUSICBOX;                 // celesta, glockenspiel, caja de música, campanas
+        if (p < 16) return MARIMBA;                              // vibráfono, marimba, xilófono, dulcémele
+        if (p < 24) return ORGAN;                                // órganos, acordeón, armónica
+        if (p < 40) return GUITAR;                               // guitarras y bajos (pulsados)
+        if (p == 45 || p == 46) return GUITAR;                   // pizzicato, arpa
+        if (p == 47) return MARIMBA;                             // timbales
+        if (p < 52) return VIOLIN;                               // cuerdas y conjuntos de cuerda
+        if (p < 55) return FLUTE;                                // coros y voz
+        if (p < 64) return TRUMPET;                              // golpe de orquesta y metales
+        if (p < 72) return CLARINET;                             // saxos, oboe, fagot, clarinete
+        if (p < 80) return FLUTE;                                // flautas
+        if (p == 80) return CHIP;                                // onda cuadrada
+        if (p < 88) return SYNTH;                                // sintetizador solista
+        if (p < 96) return ORGAN;                                // sintetizador de fondo
+        if (p < 104) return SYNTH;
+        if (p < 108) return GUITAR;                              // sitar, banjo, shamisen, koto
+        if (p == 108 || p == 112) return MUSICBOX;
+        if (p == 110) return VIOLIN;
+        if (p == 109 || p == 111) return CLARINET;
+        if (p < 120) return MARIMBA;                             // percusión afinada
+        return SYNTH;
+    }
+
+    private static double activeRms(float[] x) {
+        double e = 0;
+        int cnt = 0;
+        for (int i = 0; i < x.length; i++) {
+            float v = x[i];
+            if (v > 1e-4f || v < -1e-4f) { e += v * v; cnt++; }
+        }
+        return cnt == 0 ? 0 : Math.sqrt(e / cnt);
+    }
+
+    /** Notas con reverberación, sin normalizar, en un búfer de len muestras. */
+    float[] renderRaw(List<Note> notes, int len, Progress p) {
         float[] out = new float[len];
         int count = 0;
         for (Note n : notes) {
@@ -50,8 +129,6 @@ public final class Synth {
             renderNote(out, (int) Math.round(n.start * sr), Math.max(0.03, n.duration()), pitch, n.velocity);
         }
         reverb(out, REVERB_WET[instrument]);
-        normalize(out, 0.89f);
-        p.update(1f);
         return out;
     }
 

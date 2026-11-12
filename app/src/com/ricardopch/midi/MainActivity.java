@@ -72,7 +72,8 @@ public class MainActivity extends Activity {
 
     private final Handler ui = new Handler(Looper.getMainLooper());
 
-    private TextView fileInfo, status, resultInfo;
+    private TextView fileInfo, status, resultInfo, percent;
+    private LinearLayout progressRow;
     private Spinner instrumentSpinner, notesSpinner;
     private Button pickBtn, previewBtn, convertBtn, cancelBtn, playBtn, saveBtn, shareBtn, saveMidiBtn, shareMidiBtn;
     private ProgressBar progressBar;
@@ -174,13 +175,21 @@ public class MainActivity extends Activity {
         convertBtn.setEnabled(false);
         convertBtn.setAlpha(0.5f);
         c3.addView(convertBtn, fullWidth());
+        progressRow = new LinearLayout(this);
+        progressRow.setOrientation(LinearLayout.HORIZONTAL);
+        progressRow.setGravity(Gravity.CENTER_VERTICAL);
+        progressRow.setVisibility(View.GONE);
         progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         progressBar.setMax(1000);
         progressBar.setProgressTintList(ColorStateList.valueOf(C_PRIMARY));
-        progressBar.setVisibility(View.GONE);
+        progressRow.addView(progressBar, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        percent = text("0 %", 15, C_PRIMARY_DARK, true);
+        percent.setGravity(Gravity.END);
+        percent.setMinWidth(dp(52));
+        progressRow.addView(percent, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         LinearLayout.LayoutParams pb = fullWidth();
         pb.topMargin = dp(12);
-        c3.addView(progressBar, pb);
+        c3.addView(progressRow, pb);
         status = text("", 14, C_MUTED, false);
         status.setPadding(0, dp(8), 0, 0);
         c3.addView(status);
@@ -444,8 +453,9 @@ public class MainActivity extends Activity {
         instrumentSpinner.setEnabled(false);
         notesSpinner.setEnabled(false);
         resultCard.setVisibility(View.GONE);
-        progressBar.setVisibility(View.VISIBLE);
+        progressRow.setVisibility(View.VISIBLE);
         progressBar.setProgress(0);
+        percent.setText("0 %");
         cancelBtn.setVisibility(View.VISIBLE);
         status.setTextColor(C_MUTED);
         status.setText("Leyendo audio…");
@@ -471,7 +481,10 @@ public class MainActivity extends Activity {
                 last = now;
                 final int v = (int) (1000 * (from + (to - from) * Math.max(0f, Math.min(1f, f))));
                 ui.post(new Runnable() {
-                    @Override public void run() { progressBar.setProgress(v); }
+                    @Override public void run() {
+                        progressBar.setProgress(v);
+                        percent.setText(Math.min(100, v / 10) + " %");
+                    }
                 });
             }
 
@@ -601,7 +614,7 @@ public class MainActivity extends Activity {
         instrumentSpinner.setEnabled(true);
         notesSpinner.setEnabled(true);
         cancelBtn.setVisibility(View.GONE);
-        progressBar.setVisibility(View.GONE);
+        progressRow.setVisibility(View.GONE);
         if (err != null) {
             status.setTextColor(C_ERROR);
             status.setText(err);

@@ -34,11 +34,13 @@ Doble clic en `MelodiaMIDI.exe` (no hace falta instalar nada; usa .NET Framework
    - *Basic Pitch (1 pista)*: rápido, todo va dentro del programa.
    - *Spleeter (4 pistas)*: separa la canción en voz, batería, bajo y resto, y cada parte va a su pista del MIDI.
    - *MuScriptor (instrumentos)*: una pista por instrumento reconocido.
+
+   Con Spleeter y MuScriptor, la casilla **«En el MP3, cada pista con su instrumento (y la batería)»** hace que el MP3 suene con varios instrumentos: cada pista con el más parecido de la app (bajo y guitarras con guitarra, cuerdas con violín, metales con trompeta, saxos con clarinete, voz y flautas con flauta…) y la batería con una batería sintetizada (bombo, caja, palmas, charles, platos, toms, cencerro). Sin la casilla, todo suena con el instrumento elegido.
 3. **Crear MP3 y MIDI…**: pregunta dónde guardar el MP3 (propone la carpeta de la canción) y guarda el `.mid` al lado, con el mismo nombre. Después: *Reproducir*, *Abrir MP3*, *Abrir MIDI* o *Carpeta*.
 
 ### Spleeter (voz, batería, bajo y resto)
 
-[Spleeter](https://github.com/deezer/spleeter) (Deezer, licencia MIT) separa la canción en cuatro partes con cuatro redes U-Net. Después, Basic Pitch saca las notas de la voz, el bajo y el resto, y un detector de golpes saca el bombo, la caja y el charles de la batería. El MIDI sale con las pistas *Voz*, *Bajo*, *Resto* (con el instrumento elegido) y *Bateria* (canal de percusión). El MP3 toca con el instrumento elegido las notas de las tres primeras.
+[Spleeter](https://github.com/deezer/spleeter) (Deezer, licencia MIT) separa la canción en cuatro partes con cuatro redes U-Net. Después, Basic Pitch saca las notas de la voz, el bajo y el resto, y un detector de golpes saca el bombo, la caja y el charles de la batería. El MIDI sale con las pistas *Voz*, *Bajo*, *Resto* (con el instrumento elegido) y *Bateria* (canal de percusión). El MP3 suena con un instrumento por pista y la batería (o solo con el elegido, si se desmarca la casilla).
 
 La primera vez descarga el modelo oficial de Spleeter (146 MB, de la página de Deezer en GitHub), comprueba que está íntegro y lo guarda en `%LOCALAPPDATA%\MelodiaMIDI\spleeter`. No hace falta Python ni ninguna cuenta. La separación está reescrita en C# (`windows/src/Spleeter.cs`) y da el mismo resultado que el modelo original en TensorFlow.
 
@@ -46,7 +48,7 @@ Limitaciones: no distingue guitarra de piano (van juntos en «resto») y la dete
 
 ### MuScriptor (reconoce los instrumentos)
 
-[MuScriptor](https://github.com/muscriptor/muscriptor) (Kyutai y Mirelo, 2026) es el mejor modelo abierto de transcripción multiinstrumento: distingue guitarras, bajo, piano, batería, cuerdas, voz… y el MIDI sale con una pista por instrumento (la batería en el canal de percusión), con el tempo y los compases detectados. El MP3 se toca con el instrumento elegido usando todas las notas menos la batería.
+[MuScriptor](https://github.com/muscriptor/muscriptor) (Kyutai y Mirelo, 2026) es el mejor modelo abierto de transcripción multiinstrumento: distingue guitarras, bajo, piano, batería, cuerdas, voz… y el MIDI sale con una pista por instrumento (la batería en el canal de percusión), con el tempo y los compases detectados. El MP3 suena con varios instrumentos (o solo con el elegido, si se desmarca la casilla).
 
 No va dentro del .exe. La primera vez que se usa, el programa:
 1. Pide un **token de Hugging Face** (cuenta gratuita). Antes hay que aceptar la licencia del modelo en <https://huggingface.co/MuScriptor/muscriptor-small> (CC BY-NC 4.0: solo uso no comercial). El token solo sirve para esa primera descarga: en cuanto el modelo está en el PC, el programa lo borra y trabaja sin conectarse a Hugging Face, así que también puedes eliminarlo en la web.
