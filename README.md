@@ -49,7 +49,7 @@ Limitaciones: no distingue guitarra de piano (van juntos en «resto») y la dete
 [MuScriptor](https://github.com/muscriptor/muscriptor) (Kyutai y Mirelo, 2026) es el mejor modelo abierto de transcripción multiinstrumento: distingue guitarras, bajo, piano, batería, cuerdas, voz… y el MIDI sale con una pista por instrumento (la batería en el canal de percusión), con el tempo y los compases detectados. El MP3 se toca con el instrumento elegido usando todas las notas menos la batería.
 
 No va dentro del .exe. La primera vez que se usa, el programa:
-1. Pide un **token de Hugging Face** (cuenta gratuita). Antes hay que aceptar la licencia del modelo en <https://huggingface.co/MuScriptor/muscriptor-small> (CC BY-NC 4.0: solo uso no comercial). El token se guarda en `%LOCALAPPDATA%\MelodiaMIDI`.
+1. Pide un **token de Hugging Face** (cuenta gratuita). Antes hay que aceptar la licencia del modelo en <https://huggingface.co/MuScriptor/muscriptor-small> (CC BY-NC 4.0: solo uso no comercial). El token solo sirve para esa primera descarga: en cuanto el modelo está en el PC, el programa lo borra y trabaja sin conectarse a Hugging Face, así que también puedes eliminarlo en la web.
 2. Descarga [uv](https://github.com/astral-sh/uv) en esa misma carpeta, y uv instala Python, PyTorch y el paquete `muscriptor` 0.4.0 (alrededor de 1 GB en total, varios minutos).
 3. Descarga el modelo *small* (el recomendado para PC sin tarjeta gráfica).
 

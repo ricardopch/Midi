@@ -36,7 +36,35 @@ namespace MelodiaMidi
 
         // ------------------------------------------------------------------ token de Hugging Face
 
-        /** Token guardado, el de la variable HF_TOKEN o "" si ya hay sesión de Hugging Face en el PC; null si no hay ninguno. */
+        /** Carpeta de modelos de Hugging Face (la misma que usa huggingface_hub). */
+        private static string HubCache()
+        {
+            string c = Environment.GetEnvironmentVariable("HF_HUB_CACHE");
+            if (!string.IsNullOrEmpty(c)) return c;
+            string home = Environment.GetEnvironmentVariable("HF_HOME");
+            if (!string.IsNullOrEmpty(home)) return Path.Combine(home, "hub");
+            string user = Environment.GetEnvironmentVariable("USERPROFILE") ?? Environment.GetEnvironmentVariable("HOME") ?? "";
+            return Path.Combine(Path.Combine(Path.Combine(user, ".cache"), "huggingface"), "hub");
+        }
+
+        /** ¿Está ya descargado el modelo? Entonces no hace falta token ni conexión con Hugging Face. */
+        public static bool ModelCached()
+        {
+            try
+            {
+                string snaps = Path.Combine(Path.Combine(HubCache(), "models--MuScriptor--muscriptor-" + ModelSize), "snapshots");
+                if (!Directory.Exists(snaps)) return false;
+                foreach (string d in Directory.GetDirectories(snaps))
+                    if (File.Exists(Path.Combine(d, "model.safetensors"))) return true;
+            }
+            catch (Exception) { }
+            return false;
+        }
+
+        /**
+         * Token guardado, el de la variable HF_TOKEN, o "" si no hace falta (modelo ya descargado o sesión de
+         * Hugging Face iniciada en el PC); null si hay que pedirlo.
+         */
         public static string Token()
         {
             try
@@ -52,7 +80,7 @@ namespace MelodiaMidi
             if (!string.IsNullOrEmpty(env)) return env.Trim();
             string home = Environment.GetEnvironmentVariable("USERPROFILE") ?? Environment.GetEnvironmentVariable("HOME") ?? "";
             if (home.Length > 0 && File.Exists(Path.Combine(Path.Combine(Path.Combine(home, ".cache"), "huggingface"), "token"))) return "";
-            return null;
+            return ModelCached() ? "" : null;
         }
 
         public static void SaveToken(string token)
@@ -155,7 +183,10 @@ namespace MelodiaMidi
                 StandardOutputEncoding = Encoding.UTF8,
                 WorkingDirectory = workDir
             };
-            if (!string.IsNullOrEmpty(token)) si.EnvironmentVariables["HF_TOKEN"] = token;
+            // con el modelo ya descargado se trabaja sin conexión con Hugging Face y sin token
+            bool offline = ModelCached();
+            if (offline) si.EnvironmentVariables["HF_HUB_OFFLINE"] = "1";
+            else if (!string.IsNullOrEmpty(token)) si.EnvironmentVariables["HF_TOKEN"] = token;
             si.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8";
             si.EnvironmentVariables["PYTHONUTF8"] = "1";
             si.EnvironmentVariables["NO_COLOR"] = "1";
@@ -210,6 +241,8 @@ namespace MelodiaMidi
                     throw new IOException("MuScriptor ha fallado:\n" + Tail(log, 6));
                 }
             }
+            // el token solo sirve para la primera descarga: una vez guardado el modelo, se borra del PC
+            if (ModelCached()) ForgetToken();
             return File.ReadAllBytes(outMid);
         }
 

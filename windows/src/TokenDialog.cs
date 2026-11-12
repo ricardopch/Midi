@@ -43,7 +43,7 @@ namespace MelodiaMidi
             box = new TextBox { Location = new Point(S(32), S(214)), Size = new Size(S(452), S(26)), UseSystemPasswordChar = true };
             Label note = new Label
             {
-                Text = "Se guarda solo en este PC. Después, la primera conversión instala Python, PyTorch y el modelo (alrededor de 1 GB) y tarda varios minutos; las siguientes van directas.",
+                Text = "Solo se usa para la primera descarga del modelo; después el programa lo borra y puedes eliminarlo también en Hugging Face. La primera conversión instala Python, PyTorch y el modelo (≈ 1 GB) y tarda varios minutos.",
                 ForeColor = Color.FromArgb(0x6B, 0x68, 0x80),
                 Location = new Point(S(16), S(250)),
                 Size = new Size(S(468), S(54))
