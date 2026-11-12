@@ -241,12 +241,12 @@ public sealed class BasicPitch {
         public int minMidi = 21;
         public int maxMidi = 108;
 
-        /** 0 = menos notas (valores originales de Basic Pitch), 1 = normal, 2 = más notas. */
+        /** 0 = menos notas, 1 = normal, 2 = más notas (los valores originales de Basic Pitch dan todavía menos). */
         public static Settings forSensitivity(int level) {
             Settings s = new Settings();
-            if (level <= 0) { s.onsetThreshold = 0.5f; s.frameThreshold = 0.3f; s.minNoteFrames = 11; }
-            else if (level == 1) { s.onsetThreshold = 0.42f; s.frameThreshold = 0.26f; s.minNoteFrames = 8; }
-            else { s.onsetThreshold = 0.35f; s.frameThreshold = 0.22f; s.minNoteFrames = 6; }
+            if (level <= 0) { s.onsetThreshold = 0.42f; s.frameThreshold = 0.26f; s.minNoteFrames = 8; }
+            else if (level == 1) { s.onsetThreshold = 0.35f; s.frameThreshold = 0.22f; s.minNoteFrames = 6; }
+            else { s.onsetThreshold = 0.28f; s.frameThreshold = 0.18f; s.minNoteFrames = 5; }
             return s;
         }
     }

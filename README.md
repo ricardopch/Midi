@@ -14,9 +14,9 @@ Coge una canción (MP3, M4A, WAV, OGG, FLAC… o un vídeo), pasa a notas **todo
 1. **Elegir archivo de audio** (o compartir una canción a la app desde otra app).
 2. Elegir el **instrumento** (*Escuchar ejemplo* para oírlo).
 3. Elegir la **cantidad de notas**:
-   - *Menos notas*: solo lo que se oye claro (los valores originales de Basic Pitch).
-   - *Normal*: punto intermedio (recomendado para empezar).
-   - *Más notas*: capta más detalles, aunque puede añadir alguna nota de sobra.
+   - *Menos notas*: solo lo que se oye claro.
+   - *Normal*: recomendado para empezar.
+   - *Más notas*: capta todavía más detalles, aunque puede añadir notas de sobra.
 4. **Crear MP4 y MIDI**. Al terminar: *Reproducir*, *Guardar MP4…*, *Compartir MP4*, *Guardar MIDI…* y *Compartir MIDI*.
 
 Instrumentos: piano, piano eléctrico, órgano, guitarra, flauta, violín, clarinete, trompeta, marimba, caja de música, chiptune 8 bits y sintetizador. El .mid lleva el instrumento General MIDI equivalente.
