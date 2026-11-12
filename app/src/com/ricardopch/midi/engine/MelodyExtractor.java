@@ -318,8 +318,8 @@ public final class MelodyExtractor {
         }
         int[] state = new int[T];
         int s = U;
-        double best = prevU;
-        for (int b = 0; b < NB; b++) if (prev[b] > best) { best = prev[b]; s = b; }
+        double bestEnd = prevU;
+        for (int b = 0; b < NB; b++) if (prev[b] > bestEnd) { bestEnd = prev[b]; s = b; }
         state[T - 1] = s;
         for (int t = T - 1; t > 0; t--) {
             s = (s == U) ? bpU[t] : bp[t * NB + s];
@@ -364,27 +364,27 @@ public final class MelodyExtractor {
 
         // segmentos por histéresis de tono
         List<int[]> segs = new ArrayList<int[]>();   // {inicio, fin(excl), corteBrusco}
-        int t = 0;
-        while (t < T) {
-            if (!voiced[t]) { t++; continue; }
-            int s = t;
-            double cur = Math.rint(ms[t] - tuning);
-            t++;
-            while (t < T && voiced[t]) {
-                double v = ms[t] - tuning;
+        int u = 0;
+        while (u < T) {
+            if (!voiced[u]) { u++; continue; }
+            int s = u;
+            double cur = Math.rint(ms[u] - tuning);
+            u++;
+            while (u < T && voiced[u]) {
+                double v = ms[u] - tuning;
                 if (Math.abs(v - cur) > hysteresis) {
                     double nq = Math.rint(v);
-                    int k = t, cnt = 0;
+                    int k = u, cnt = 0;
                     while (k < T && voiced[k] && Math.abs(ms[k] - tuning - nq) < 0.6 && cnt < persistFrames) { k++; cnt++; }
                     if (cnt >= persistFrames) {
-                        segs.add(new int[]{s, t, 0});
-                        s = t;
+                        segs.add(new int[]{s, u, 0});
+                        s = u;
                         cur = nq;
                     }
                 }
-                t++;
+                u++;
             }
-            segs.add(new int[]{s, t, 0});
+            segs.add(new int[]{s, u, 0});
         }
 
         // segmentos cortos: unir al vecino contiguo de tono más parecido

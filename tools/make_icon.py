@@ -43,5 +43,13 @@ def main(res):
     big.resize((512, 512), Image.LANCZOS).save(os.path.join(os.path.dirname(res.rstrip("/")), "icon512.png"))
 
 
+def make_ico(path):
+    big = draw()
+    big.save(path, format="ICO", sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
+
+
 if __name__ == "__main__":
-    main(sys.argv[1])
+    if sys.argv[1].endswith(".ico"):
+        make_ico(sys.argv[1])
+    else:
+        main(sys.argv[1])

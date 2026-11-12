@@ -38,9 +38,9 @@ public final class Resampler {
         if (p == null) p = Progress.NONE;
         final float s16 = 1f / 32768f;
         if (srcRate == dstRate) {
-            float[] out = new float[n];
-            for (int i = 0; i < n; i++) out[i] = fin != null ? fin[i] : sin[i] * s16;
-            return out;
+            float[] same = new float[n];
+            for (int i = 0; i < n; i++) same[i] = fin != null ? fin[i] : sin[i] * s16;
+            return same;
         }
         // tiempo de entrada de la salida i: i * M / L (racional exacto)
         int g = gcd(srcRate, dstRate);

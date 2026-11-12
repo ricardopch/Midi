@@ -1,0 +1,482 @@
+using System;
+using System.Diagnostics;
+using System.Drawing;
+using System.IO;
+using System.Media;
+using System.Threading;
+using System.Windows.Forms;
+using MelodiaMidi.Engine;
+
+namespace MelodiaMidi
+{
+    internal sealed class MainForm : Form
+    {
+        private const int OutRate = 44100;
+
+        private static readonly Color CBg = Color.FromArgb(0xF4, 0xF2, 0xFA);
+        private static readonly Color CPrimary = Color.FromArgb(0x5B, 0x47, 0xD6);
+        private static readonly Color CPrimaryDark = Color.FromArgb(0x3F, 0x2F, 0xB0);
+        private static readonly Color CSecondary = Color.FromArgb(0xEC, 0xE8, 0xFB);
+        private static readonly Color CText = Color.FromArgb(0x1D, 0x1B, 0x26);
+        private static readonly Color CMuted = Color.FromArgb(0x6B, 0x68, 0x80);
+        private static readonly Color CError = Color.FromArgb(0xB3, 0x26, 0x1E);
+        private static readonly Color COk = Color.FromArgb(0x1E, 0x7B, 0x34);
+
+        private readonly float scale;
+        private readonly string fontName;
+
+        private Label fileInfo, status, resultInfo;
+        private ComboBox instrument;
+        private Button pickBtn, previewBtn, convertBtn, cancelBtn, playBtn, folderBtn, openBtn;
+        private ProgressBar progress;
+        private Panel resultCard;
+        private Label tip;
+        private int resultTopY;
+
+        private string inputPath;
+        private string outputPath;
+        private float[] lastOutput;
+        private volatile bool busy;
+        private volatile bool cancel;
+        private SoundPlayer player;
+        private bool playing;
+        private System.Windows.Forms.Timer playTimer;
+
+        public MainForm(string initialFile)
+        {
+            using (Graphics g = CreateGraphics()) scale = g.DpiX / 96f;
+            fontName = AudioIO.IsWindows ? "Segoe UI" : "DejaVu Sans";
+            Text = "Melodía MIDI";
+            AutoScaleMode = AutoScaleMode.None;
+            Font = new Font(fontName, 10f);
+            BackColor = CBg;
+            FormBorderStyle = FormBorderStyle.FixedSingle;
+            MaximizeBox = false;
+            StartPosition = FormStartPosition.CenterScreen;
+            AllowDrop = true;
+            try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch (Exception) { }
+            BuildUi();
+            HookDrop(this);
+            playTimer = new System.Windows.Forms.Timer();
+            playTimer.Tick += delegate { playTimer.Stop(); StopPlayback(); };
+            if (!string.IsNullOrEmpty(initialFile) && File.Exists(initialFile)) LoadInput(initialFile);
+        }
+
+        private int S(float v) { return (int)Math.Round(v * scale); }
+
+        // ------------------------------------------------------------------ interfaz
+
+        private void BuildUi()
+        {
+            const int W = 520;           // ancho de las tarjetas (px lógicos)
+            const int M = 18;            // margen
+            int y = 0;
+
+            Panel header = new Panel { BackColor = CPrimaryDark, Location = new Point(0, 0), Size = new Size(S(W + 2 * M), S(84)) };
+            Label title = new Label { Text = "♪ Melodía MIDI", ForeColor = Color.White, Font = new Font(fontName, 18f, FontStyle.Bold), AutoSize = true, Location = new Point(S(M), S(12)), BackColor = Color.Transparent };
+            Label sub = new Label { Text = "Saca la melodía de una canción y crea un MP4 tocado con un solo instrumento.", ForeColor = Color.FromArgb(0xE4, 0xDF, 0xFF), AutoSize = false, Size = new Size(S(W), S(24)), Location = new Point(S(M), S(52)), BackColor = Color.Transparent };
+            header.Controls.Add(title);
+            header.Controls.Add(sub);
+            Controls.Add(header);
+            y = 84 + 14;
+
+            // 1. Canción
+            Panel c1 = Card("1 · Canción", M, y, W, 124);
+            pickBtn = MakeButton("Elegir archivo de audio…", true, 16, 44, W - 32);
+            pickBtn.Click += delegate { PickFile(); };
+            c1.Controls.Add(pickBtn);
+            fileInfo = MakeLabel("Ningún archivo elegido. Vale MP3, M4A, WAV, WMA, FLAC… e incluso vídeos. También puedes arrastrarlo a esta ventana.", 16, 86, W - 32, 34, CMuted, 9f);
+            c1.Controls.Add(fileInfo);
+            y += 124 + 12;
+
+            // 2. Instrumento
+            Panel c2 = Card("2 · Instrumento", M, y, W, 96);
+            instrument = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(S(16), S(48)), Size = new Size(S(250), S(30)), Font = new Font(fontName, 11f) };
+            instrument.Items.AddRange(Synth.NAMES);
+            instrument.SelectedIndex = 0;
+            instrument.SelectedIndexChanged += delegate { StopPlayback(); };
+            c2.Controls.Add(instrument);
+            previewBtn = MakeButton("Escuchar ejemplo", false, 280, 44, W - 296);
+            previewBtn.Click += delegate { PlayPreview(); };
+            c2.Controls.Add(previewBtn);
+            y += 96 + 12;
+
+            // 3. Crear
+            Panel c3 = Card("3 · Crear el MP4", M, y, W, 150);
+            convertBtn = MakeButton("Crear MP4…", true, 16, 44, W - 32);
+            convertBtn.Click += delegate { StartConversion(); };
+            SetEnabled(convertBtn, false);
+            c3.Controls.Add(convertBtn);
+            progress = new ProgressBar { Location = new Point(S(16), S(94)), Size = new Size(S(W - 32 - 110), S(18)), Maximum = 1000, Visible = false };
+            c3.Controls.Add(progress);
+            cancelBtn = MakeButton("Cancelar", false, W - 16 - 100, 88, 100);
+            cancelBtn.Height = S(30);
+            cancelBtn.Visible = false;
+            cancelBtn.Click += delegate { cancel = true; status.Text = "Cancelando…"; };
+            c3.Controls.Add(cancelBtn);
+            status = MakeLabel("", 16, 120, W - 32, 24, CMuted, 9.5f);
+            c3.Controls.Add(status);
+            y += 150 + 12;
+
+            // Resultado
+            resultTopY = y;
+            resultCard = Card("Resultado", M, y, W, 150);
+            resultInfo = MakeLabel("", 16, 42, W - 32, 52, CText, 9.5f);
+            resultCard.Controls.Add(resultInfo);
+            int bw = (W - 32 - 2 * 10) / 3;
+            playBtn = MakeButton("Reproducir", true, 16, 100, bw);
+            playBtn.Click += delegate { TogglePlay(); };
+            folderBtn = MakeButton("Abrir carpeta", false, 16 + bw + 10, 100, bw);
+            folderBtn.Click += delegate { OpenFolder(); };
+            openBtn = MakeButton("Abrir MP4", false, 16 + 2 * (bw + 10), 100, bw);
+            openBtn.Click += delegate { OpenWithDefault(); };
+            resultCard.Controls.Add(playBtn);
+            resultCard.Controls.Add(folderBtn);
+            resultCard.Controls.Add(openBtn);
+            resultCard.Visible = false;
+
+            tip = MakeLabel("Consejo: funciona mejor cuando la voz o el instrumento principal se oye claro. En partes sin melodía "
+                + "(intros, solos de batería) puede seguir al acompañamiento. El MP4 dura lo mismo que la canción.", M + 2, y, W - 4, 54, CMuted, 8.5f);
+            Controls.Add(tip);
+            ShowResult(false);
+        }
+
+        /** Muestra u oculta la tarjeta de resultado y ajusta la altura de la ventana. */
+        private void ShowResult(bool show)
+        {
+            const int W = 520, M = 18;
+            resultCard.Visible = show;
+            int y = resultTopY + (show ? 150 + 12 : 0);
+            tip.Location = new Point(S(M + 2), S(y));
+            ClientSize = new Size(S(W + 2 * M), S(y + 54 + 10));
+        }
+
+        private Panel Card(string heading, int x, int y, int w, int h)
+        {
+            Panel p = new Panel { BackColor = Color.White, Location = new Point(S(x), S(y)), Size = new Size(S(w), S(h)) };
+            p.Paint += delegate (object s, PaintEventArgs e)
+            {
+                using (Pen pen = new Pen(Color.FromArgb(0xE2, 0xDE, 0xF0)))
+                    e.Graphics.DrawRectangle(pen, 0, 0, p.Width - 1, p.Height - 1);
+            };
+            Label l = new Label { Text = heading, ForeColor = CPrimaryDark, Font = new Font(fontName, 12f, FontStyle.Bold), AutoSize = true, Location = new Point(S(14), S(10)) };
+            p.Controls.Add(l);
+            Controls.Add(p);
+            return p;
+        }
+
+        private Button MakeButton(string text, bool primary, int x, int y, int w)
+        {
+            Button b = new Button
+            {
+                Text = text,
+                Location = new Point(S(x), S(y)),
+                Size = new Size(S(w), S(36)),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = primary ? CPrimary : CSecondary,
+                ForeColor = primary ? Color.White : CPrimaryDark,
+                Font = new Font(fontName, 10.5f, primary ? FontStyle.Bold : FontStyle.Regular),
+                Cursor = Cursors.Hand,
+                UseVisualStyleBackColor = false
+            };
+            b.FlatAppearance.BorderSize = 0;
+            b.FlatAppearance.MouseOverBackColor = primary ? CPrimaryDark : Color.FromArgb(0xDD, 0xD6, 0xF8);
+            b.Tag = primary;
+            return b;
+        }
+
+        private Label MakeLabel(string text, int x, int y, int w, int h, Color color, float size)
+        {
+            return new Label { Text = text, ForeColor = color, Location = new Point(S(x), S(y)), Size = new Size(S(w), S(h)), Font = new Font(fontName, size), AutoSize = false };
+        }
+
+        private static void SetEnabled(Button b, bool on)
+        {
+            b.Enabled = on;
+            bool primary = b.Tag is bool && (bool)b.Tag;
+            if (primary) b.BackColor = on ? CPrimary : Color.FromArgb(0xB9, 0xB0, 0xEA);
+            else b.ForeColor = on ? CPrimaryDark : Color.FromArgb(0xA0, 0x9C, 0xB5);
+        }
+
+        // ------------------------------------------------------------------ archivo
+
+        private void HookDrop(Control c)
+        {
+            c.AllowDrop = true;
+            c.DragEnter += OnDragEnter;
+            c.DragDrop += OnDragDrop;
+            foreach (Control ch in c.Controls) HookDrop(ch);
+        }
+
+        private void OnDragEnter(object sender, DragEventArgs e)
+        {
+            e.Effect = !busy && e.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Copy : DragDropEffects.None;
+        }
+
+        private void OnDragDrop(object sender, DragEventArgs e)
+        {
+            if (busy) return;
+            string[] files = e.Data.GetData(DataFormats.FileDrop) as string[];
+            if (files != null && files.Length > 0 && File.Exists(files[0])) LoadInput(files[0]);
+        }
+
+        private void PickFile()
+        {
+            if (busy) return;
+            using (OpenFileDialog d = new OpenFileDialog())
+            {
+                d.Title = "Elige una canción";
+                d.Filter = "Audio y vídeo|*.mp3;*.m4a;*.aac;*.wav;*.wma;*.flac;*.ogg;*.opus;*.aif;*.aiff;*.mp4;*.m4v;*.mov;*.mkv;*.webm;*.avi;*.wmv;*.3gp;*.amr|Todos los archivos|*.*";
+                d.CheckFileExists = true;
+                if (d.ShowDialog(this) == DialogResult.OK) LoadInput(d.FileName);
+            }
+        }
+
+        private void LoadInput(string path)
+        {
+            StopPlayback();
+            inputPath = path;
+            long size = 0;
+            try { size = new FileInfo(path).Length; } catch (Exception) { }
+            fileInfo.ForeColor = CText;
+            fileInfo.Text = Path.GetFileName(path) + "   ·   " + (size / 1048576.0).ToString("0.0") + " MB";
+            SetEnabled(convertBtn, true);
+            status.Text = "";
+            ShowResult(false);
+        }
+
+        // ------------------------------------------------------------------ conversión
+
+        private void StartConversion()
+        {
+            if (busy || inputPath == null) return;
+            int inst = instrument.SelectedIndex;
+            string dest;
+            using (SaveFileDialog d = new SaveFileDialog())
+            {
+                d.Title = "Guardar el MP4";
+                d.Filter = "Vídeo MP4 (*.mp4)|*.mp4";
+                d.DefaultExt = "mp4";
+                d.AddExtension = true;
+                d.OverwritePrompt = true;
+                d.FileName = Safe(Path.GetFileNameWithoutExtension(inputPath)) + "_melodia_" + Safe(Synth.NAMES[inst]) + ".mp4";
+                try { d.InitialDirectory = Path.GetDirectoryName(Path.GetFullPath(inputPath)); } catch (Exception) { }
+                if (d.ShowDialog(this) != DialogResult.OK) return;
+                dest = d.FileName;
+            }
+            busy = true;
+            cancel = false;
+            StopPlayback();
+            SetEnabled(pickBtn, false);
+            SetEnabled(convertBtn, false);
+            instrument.Enabled = false;
+            ShowResult(false);
+            progress.Value = 0;
+            progress.Visible = true;
+            cancelBtn.Visible = true;
+            status.ForeColor = CMuted;
+            status.Text = "Leyendo audio…";
+            string src = inputPath;
+            Thread t = new Thread(delegate () { Convert(src, dest, inst); });
+            t.IsBackground = true;
+            t.Name = "conversion";
+            t.Start();
+        }
+
+        private sealed class StageProgress : IProgress
+        {
+            private readonly MainForm f;
+            private readonly float from, to;
+            private int lastTick;
+
+            public StageProgress(MainForm f, string label, float from, float to)
+            {
+                this.f = f;
+                this.from = from;
+                this.to = to;
+                f.Ui(delegate { if (f.busy) f.status.Text = label; });
+            }
+
+            public void update(float x)
+            {
+                int now = Environment.TickCount;
+                if (now - lastTick < 80 && x < 1f) return;
+                lastTick = now;
+                int v = (int)(1000 * (from + (to - from) * Math.Max(0f, Math.Min(1f, x))));
+                f.Ui(delegate { f.progress.Value = Math.Max(0, Math.Min(1000, v)); });
+            }
+
+            public bool isCancelled() { return f.cancel; }
+        }
+
+        private void Ui(MethodInvoker a)
+        {
+            if (IsDisposed || !IsHandleCreated) return;
+            try { BeginInvoke(a); } catch (Exception) { }
+        }
+
+        private void Convert(string src, string dest, int inst)
+        {
+            string error = null, warning = null, written = null;
+            int notes = 0;
+            double seconds = 0;
+            bool truncated = false;
+            float[] y = null;
+            try
+            {
+                AudioIO.Input input = AudioIO.Decode(src, new StageProgress(this, "Leyendo audio…", 0f, 0.25f));
+                truncated = input.Truncated;
+                seconds = (double)input.Length / input.SampleRate;
+                float[] x = Resampler.resample(input.Samples, input.Length, input.SampleRate, MelodyExtractor.SAMPLE_RATE,
+                    new StageProgress(this, "Preparando…", 0.25f, 0.3f));
+                input = null;
+                MelodyExtractor.Result mel = new MelodyExtractor().extract(x, new StageProgress(this, "Buscando la melodía…", 0.3f, 0.7f));
+                x = null;
+                notes = mel.notes.Count;
+                if (notes == 0) throw new IOException("No se ha encontrado ninguna melodía en el audio.");
+                y = new Synth(inst, OutRate).render(mel.notes, seconds, new StageProgress(this, "Tocando con " + Synth.NAMES[inst] + "…", 0.7f, 0.85f));
+                written = AudioIO.Save(y, OutRate, dest, new StageProgress(this, "Creando el MP4…", 0.85f, 1f), out warning);
+            }
+            catch (CancelledException)
+            {
+                error = "Conversión cancelada.";
+            }
+            catch (OutOfMemoryException)
+            {
+                error = "No hay memoria suficiente. Prueba con una canción más corta.";
+            }
+            catch (Exception e)
+            {
+                error = e.Message;
+            }
+            float[] result = y;
+            Ui(delegate { Finish(error, warning, written, result, notes, seconds, truncated); });
+        }
+
+        private void Finish(string error, string warning, string written, float[] result, int notes, double secs, bool truncated)
+        {
+            busy = false;
+            SetEnabled(pickBtn, true);
+            SetEnabled(convertBtn, inputPath != null);
+            instrument.Enabled = true;
+            progress.Visible = false;
+            cancelBtn.Visible = false;
+            if (error != null)
+            {
+                status.ForeColor = CError;
+                status.Text = error;
+                return;
+            }
+            outputPath = written;
+            lastOutput = result;
+            status.ForeColor = COk;
+            status.Text = warning == null ? "¡Listo!" : "Listo (aviso abajo).";
+            long size = 0;
+            try { size = new FileInfo(written).Length; } catch (Exception) { }
+            int m = (int)(secs / 60), s = (int)(secs % 60);
+            string info = Path.GetFileName(written) + "\n" + notes + " notas  ·  " + m + ":" + s.ToString("00") + "  ·  " + (size / 1048576.0).ToString("0.0") + " MB";
+            if (truncated) info += "\nSolo se han procesado los primeros " + AudioIO.MaxSeconds / 60 + " minutos.";
+            if (warning != null) info += "\n" + warning;
+            resultInfo.Text = info;
+            openBtn.Text = written.EndsWith(".wav", StringComparison.OrdinalIgnoreCase) ? "Abrir WAV" : "Abrir MP4";
+            ShowResult(true);
+        }
+
+        // ------------------------------------------------------------------ reproducción
+
+        private void PlaySamples(float[] y, Button owner)
+        {
+            StopPlayback();
+            try
+            {
+                player = new SoundPlayer(new MemoryStream(WavFile.Build(y, OutRate)));
+                player.Play();
+                playing = true;
+                owner.Text = "Parar";
+                playTimer.Interval = Math.Max(500, (int)(1000.0 * y.Length / OutRate) + 300);
+                playTimer.Tag = owner;
+                playTimer.Start();
+            }
+            catch (Exception e)
+            {
+                StopPlayback();
+                MessageBox.Show(this, "No se pudo reproducir: " + e.Message, "Melodía MIDI");
+            }
+        }
+
+        private void StopPlayback()
+        {
+            if (playTimer != null) playTimer.Stop();
+            if (player != null)
+            {
+                try { player.Stop(); } catch (Exception) { }
+                player.Dispose();
+                player = null;
+            }
+            playing = false;
+            if (previewBtn != null) previewBtn.Text = "Escuchar ejemplo";
+            if (playBtn != null) playBtn.Text = "Reproducir";
+        }
+
+        private void PlayPreview()
+        {
+            if (playing && playTimer.Tag == previewBtn) { StopPlayback(); return; }
+            float[] y = new Synth(instrument.SelectedIndex, OutRate).render(Synth.demoPhrase(), 6.0, null);
+            PlaySamples(y, previewBtn);
+        }
+
+        private void TogglePlay()
+        {
+            if (playing && playTimer.Tag == playBtn) { StopPlayback(); return; }
+            if (lastOutput != null) PlaySamples(lastOutput, playBtn);
+        }
+
+        private void OpenFolder()
+        {
+            if (outputPath == null) return;
+            try
+            {
+                if (AudioIO.IsWindows) Process.Start("explorer.exe", "/select,\"" + outputPath + "\"");
+                else Process.Start(Path.GetDirectoryName(outputPath));
+            }
+            catch (Exception e)
+            {
+                MessageBox.Show(this, "No se pudo abrir la carpeta: " + e.Message, "Melodía MIDI");
+            }
+        }
+
+        private void OpenWithDefault()
+        {
+            if (outputPath == null) return;
+            StopPlayback();
+            try
+            {
+                Process.Start(new ProcessStartInfo(outputPath) { UseShellExecute = true });
+            }
+            catch (Exception e)
+            {
+                MessageBox.Show(this, "No se pudo abrir el archivo: " + e.Message, "Melodía MIDI");
+            }
+        }
+
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            cancel = true;
+            StopPlayback();
+            base.OnFormClosing(e);
+        }
+
+        private static string Safe(string s)
+        {
+            System.Text.StringBuilder b = new System.Text.StringBuilder();
+            foreach (char c in s)
+            {
+                if (char.IsLetterOrDigit(c) || c == '.' || c == '-' || c == '_') b.Append(c);
+                else if (b.Length > 0 && b[b.Length - 1] != '_') b.Append('_');
+            }
+            string r = b.ToString().Trim('_');
+            if (r.Length > 60) r = r.Substring(0, 60);
+            return r.Length == 0 ? "cancion" : r;
+        }
+    }
+}
