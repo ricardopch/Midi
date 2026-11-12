@@ -15,7 +15,7 @@ python3 ../tools/check_mf.py src/MediaFoundation.cs > "$B/check_mf.txt" || { cat
 (cd res && x86_64-w64-mingw32-windres --codepage=65001 -O res -i app.rc -o "../$B/app.res")
 # 4) compilar
 mcs -codepage:utf8 -optimize+ -target:winexe -platform:anycpu -sdk:4.5 \
-    -r:System.Windows.Forms.dll -r:System.Drawing.dll -win32res:"$B/app.res" \
+    -r:System.Windows.Forms.dll -r:System.Drawing.dll -r:System.IO.Compression.dll -r:System.IO.Compression.FileSystem.dll -win32res:"$B/app.res" \
     -resource:../app/assets/bp.bin,bp.bin -resource:../third_party/basic-pitch/LICENSE,LICENSE-basic-pitch.txt -nowarn:675 \
     -out:"$OUT" engine/*.cs src/*.cs
 echo "EXE: $OUT ($(du -h "$OUT" | cut -f1))"

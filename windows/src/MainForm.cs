@@ -14,7 +14,8 @@ namespace MelodiaMidi
     internal sealed class MainForm : Form
     {
         private const int OutRate = 44100;
-        private static readonly string[] NoteLevels = { "Menos notas (solo lo claro)", "Normal", "Más notas (más detalle)" };
+        private static readonly string[] NoteLevels = { "Menos notas", "Normal", "Más notas" };
+        private static readonly string[] Engines = { "Basic Pitch (rápido, incluido)", "MuScriptor (reconoce instrumentos)" };
         private static WeightFile model;
         private static readonly object ModelLock = new object();
 
@@ -31,7 +32,8 @@ namespace MelodiaMidi
         private readonly string fontName;
 
         private Label fileInfo, status, resultInfo;
-        private ComboBox instrument, noteLevel;
+        private ComboBox instrument, noteLevel, engine;
+        private Label engineHint;
         private Button pickBtn, previewBtn, convertBtn, cancelBtn, playBtn, folderBtn, openBtn, openMidiBtn;
         private ProgressBar progress;
         private Panel resultCard;
@@ -80,7 +82,7 @@ namespace MelodiaMidi
 
             Panel header = new Panel { BackColor = CPrimaryDark, Location = new Point(0, 0), Size = new Size(S(W + 2 * M), S(84)) };
             Label title = new Label { Text = "♪ Melodía MIDI", ForeColor = Color.White, Font = new Font(fontName, 18f, FontStyle.Bold), AutoSize = true, Location = new Point(S(M), S(12)), BackColor = Color.Transparent };
-            Label sub = new Label { Text = "Pasa a notas todo lo que suena y crea un MP4 y un MIDI con un instrumento.", ForeColor = Color.FromArgb(0xE4, 0xDF, 0xFF), AutoSize = false, Size = new Size(S(W), S(24)), Location = new Point(S(M), S(52)), BackColor = Color.Transparent };
+            Label sub = new Label { Text = "Pasa a notas todo lo que suena y crea un MP3 y un MIDI.", ForeColor = Color.FromArgb(0xE4, 0xDF, 0xFF), AutoSize = false, Size = new Size(S(W), S(24)), Location = new Point(S(M), S(52)), BackColor = Color.Transparent };
             header.Controls.Add(title);
             header.Controls.Add(sub);
             Controls.Add(header);
@@ -95,8 +97,8 @@ namespace MelodiaMidi
             c1.Controls.Add(fileInfo);
             y += 120 + 12;
 
-            // 2. Instrumento y cantidad de notas
-            Panel c2 = Card("2 · Instrumento y notas", M, y, W, 134);
+            // 2. Instrumento, reconocimiento y cantidad de notas
+            Panel c2 = Card("2 · Instrumento y notas", M, y, W, 172);
             instrument = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(S(16), S(48)), Size = new Size(S(250), S(30)), Font = new Font(fontName, 11f) };
             instrument.Items.AddRange(Synth.NAMES);
             instrument.SelectedIndex = 0;
@@ -105,16 +107,23 @@ namespace MelodiaMidi
             previewBtn = MakeButton("Escuchar ejemplo", false, 280, 44, W - 296);
             previewBtn.Click += delegate { PlayPreview(); };
             c2.Controls.Add(previewBtn);
-            noteLevel = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(S(16), S(92)), Size = new Size(S(250), S(30)), Font = new Font(fontName, 11f) };
+            engine = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(S(16), S(92)), Size = new Size(S(250), S(30)), Font = new Font(fontName, 11f) };
+            engine.Items.AddRange(Engines);
+            engine.SelectedIndex = 0;
+            c2.Controls.Add(engine);
+            noteLevel = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(S(280), S(92)), Size = new Size(S(W - 296), S(30)), Font = new Font(fontName, 11f) };
             noteLevel.Items.AddRange(NoteLevels);
             noteLevel.SelectedIndex = 1;
             c2.Controls.Add(noteLevel);
-            c2.Controls.Add(MakeLabel("¿Faltan notas? Elige «Más notas». ¿Sobran? «Menos notas».", 280, 90, W - 296, 40, CMuted, 8.5f));
-            y += 134 + 12;
+            engineHint = MakeLabel("", 16, 128, W - 32, 40, CMuted, 8.5f);
+            c2.Controls.Add(engineHint);
+            engine.SelectedIndexChanged += delegate { UpdateEngineHint(); };
+            UpdateEngineHint();
+            y += 172 + 12;
 
             // 3. Crear
-            Panel c3 = Card("3 · Crear el MP4 y el MIDI", M, y, W, 150);
-            convertBtn = MakeButton("Crear MP4 y MIDI…", true, 16, 44, W - 32);
+            Panel c3 = Card("3 · Crear el MP3 y el MIDI", M, y, W, 150);
+            convertBtn = MakeButton("Crear MP3 y MIDI…", true, 16, 44, W - 32);
             convertBtn.Click += delegate { StartConversion(); };
             SetEnabled(convertBtn, false);
             c3.Controls.Add(convertBtn);
@@ -137,7 +146,7 @@ namespace MelodiaMidi
             int bw = (W - 32 - 3 * 8) / 4;
             playBtn = MakeButton("Reproducir", true, 16, 100, bw);
             playBtn.Click += delegate { TogglePlay(); };
-            openBtn = MakeButton("Abrir MP4", false, 16 + bw + 8, 100, bw);
+            openBtn = MakeButton("Abrir MP3", false, 16 + bw + 8, 100, bw);
             openBtn.Click += delegate { OpenWithDefault(outputPath); };
             openMidiBtn = MakeButton("Abrir MIDI", false, 16 + 2 * (bw + 8), 100, bw);
             openMidiBtn.Click += delegate { OpenWithDefault(midiPath); };
@@ -149,10 +158,19 @@ namespace MelodiaMidi
             resultCard.Controls.Add(folderBtn);
             resultCard.Visible = false;
 
-            tip = MakeLabel("Las notas se sacan con una red neuronal (Basic Pitch) que reconoce voces e instrumentos a la vez. "
-                + "El .mid se guarda junto al MP4 y se abre en cualquier programa de música.", M + 2, y, W - 4, 44, CMuted, 8.5f);
+            tip = MakeLabel("El MP3 suena con el instrumento elegido; el .mid se guarda al lado y se abre en cualquier programa de música. "
+                + "Ambos duran lo mismo que la canción.", M + 2, y, W - 4, 44, CMuted, 8.5f);
             Controls.Add(tip);
             ShowResult(false);
+        }
+
+        private void UpdateEngineHint()
+        {
+            bool mus = engine.SelectedIndex == 1;
+            noteLevel.Enabled = !mus && !busy;
+            engineHint.Text = mus
+                ? "MuScriptor pone cada instrumento en su pista del MIDI. Más lento; la 1.ª vez instala ≈ 1 GB y pide una cuenta gratuita de Hugging Face."
+                : "Basic Pitch saca todas las notas a una sola pista. ¿Faltan notas? Elige «Más notas». ¿Sobran? «Menos notas».";
         }
 
         /** Muestra u oculta la tarjeta de resultado y ajusta la altura de la ventana. */
@@ -279,15 +297,30 @@ namespace MelodiaMidi
             if (busy || inputPath == null) return;
             int inst = instrument.SelectedIndex;
             int level = noteLevel.SelectedIndex;
+            bool useMus = engine.SelectedIndex == 1;
+            string token = null;
+            if (useMus)
+            {
+                token = MuScriptor.Token();
+                if (token == null)
+                {
+                    using (TokenDialog td = new TokenDialog(Font, scale))
+                    {
+                        if (td.ShowDialog(this) != DialogResult.OK) return;
+                        token = td.Token;
+                        try { MuScriptor.SaveToken(token); } catch (Exception) { }
+                    }
+                }
+            }
             string dest;
             using (SaveFileDialog d = new SaveFileDialog())
             {
-                d.Title = "Guardar el MP4 (el MIDI se guarda al lado)";
-                d.Filter = "Vídeo MP4 (*.mp4)|*.mp4";
-                d.DefaultExt = "mp4";
+                d.Title = "Guardar el MP3 (el MIDI se guarda al lado)";
+                d.Filter = "Audio MP3 (*.mp3)|*.mp3";
+                d.DefaultExt = "mp3";
                 d.AddExtension = true;
                 d.OverwritePrompt = true;
-                d.FileName = Safe(Path.GetFileNameWithoutExtension(inputPath)) + "_notas_" + Safe(Synth.NAMES[inst]) + ".mp4";
+                d.FileName = Safe(Path.GetFileNameWithoutExtension(inputPath)) + "_notas_" + Safe(Synth.NAMES[inst]) + ".mp3";
                 try { d.InitialDirectory = Path.GetDirectoryName(Path.GetFullPath(inputPath)); } catch (Exception) { }
                 if (d.ShowDialog(this) != DialogResult.OK) return;
                 dest = d.FileName;
@@ -299,6 +332,7 @@ namespace MelodiaMidi
             SetEnabled(convertBtn, false);
             instrument.Enabled = false;
             noteLevel.Enabled = false;
+            engine.Enabled = false;
             ShowResult(false);
             progress.Value = 0;
             progress.Visible = true;
@@ -306,7 +340,7 @@ namespace MelodiaMidi
             status.ForeColor = CMuted;
             status.Text = "Leyendo audio…";
             string src = inputPath;
-            Thread t = new Thread(delegate () { Convert(src, dest, inst, level); });
+            Thread t = new Thread(delegate () { Convert(src, dest, inst, level, useMus, token); });
             t.IsBackground = true;
             t.Name = "conversion";
             t.Start();
@@ -344,35 +378,71 @@ namespace MelodiaMidi
             try { BeginInvoke(a); } catch (Exception) { }
         }
 
-        private void Convert(string src, string dest, int inst, int level)
+        private void Convert(string src, string dest, int inst, int level, bool useMus, string token)
         {
-            string error = null, warning = null, written = null, midi = null;
+            string error = null, written = null, midi = null, instruments = null;
             int notes = 0;
             double seconds = 0;
             bool truncated = false;
             float[] y = null;
+            string work = null;
             try
             {
-                AudioIO.Input input = AudioIO.Decode(src, new StageProgress(this, "Leyendo audio…", 0f, 0.12f));
+                AudioIO.Input input = AudioIO.Decode(src, new StageProgress(this, "Leyendo audio…", 0f, 0.1f));
                 truncated = input.Truncated;
                 seconds = (double)input.Length / input.SampleRate;
-                float[] x = Resampler.resample(input.Samples, input.Length, input.SampleRate, BasicPitch.SR,
-                    new StageProgress(this, "Preparando…", 0.12f, 0.16f));
-                input = null;
-                float[][] act = Transcribe(x, new StageProgress(this, "Reconociendo las notas…", 0.16f, 0.76f));
-                x = null;
-                List<Note> list = BasicPitch.notes(act[0], act[1], act[0].Length / BasicPitch.KEYS, BasicPitch.Settings.forSensitivity(level));
-                act = null;
-                notes = list.Count;
-                if (notes == 0) throw new IOException("No se ha encontrado ninguna nota en el audio.");
+                List<Note> list;
                 midi = Path.ChangeExtension(dest, ".mid");
-                File.WriteAllBytes(midi, MidiWriter.toBytes(list, Synth.GM_PROGRAM[inst]));
-                y = new Synth(inst, OutRate).render(list, seconds, new StageProgress(this, "Tocando con " + Synth.NAMES[inst] + "…", 0.76f, 0.87f));
-                written = AudioIO.Save(y, OutRate, dest, new StageProgress(this, "Creando el MP4…", 0.87f, 1f), out warning);
+                if (useMus)
+                {
+                    work = Path.Combine(Path.GetTempPath(), "MelodiaMIDI_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(work);
+                    string wav = Path.Combine(work, "entrada.wav");
+                    float[] mono = new float[input.Length];
+                    Array.Copy(input.Samples, mono, input.Length);
+                    File.WriteAllBytes(wav, WavFile.Build(mono, input.SampleRate));
+                    mono = null;
+                    input = null;
+                    Ui(delegate { progress.Style = ProgressBarStyle.Marquee; });
+                    byte[] mid = MuScriptor.Transcribe(wav, work, token,
+                        delegate (string msg) { Ui(delegate { if (busy) status.Text = msg; }); },
+                        new StageProgress(this, "Preparando MuScriptor…", 0.1f, 0.85f));
+                    Ui(delegate { progress.Style = ProgressBarStyle.Blocks; });
+                    File.WriteAllBytes(midi, mid);
+                    MidiReader mr = MidiReader.Parse(mid);
+                    list = mr.PitchedNotes();
+                    notes = mr.Notes.Count;
+                    List<string> names = new List<string>();
+                    foreach (string n in mr.TrackNames)
+                        if (n.Trim().Length > 0 && !names.Contains(n.Trim())) names.Add(n.Trim());
+                    instruments = string.Join(", ", names.ToArray());
+                    if (list.Count == 0) throw new IOException("MuScriptor no ha encontrado notas con altura (solo percusión o nada). El MIDI se ha guardado igualmente.");
+                }
+                else
+                {
+                    float[] x = Resampler.resample(input.Samples, input.Length, input.SampleRate, BasicPitch.SR,
+                        new StageProgress(this, "Preparando…", 0.1f, 0.15f));
+                    input = null;
+                    float[][] act = Transcribe(x, new StageProgress(this, "Reconociendo las notas…", 0.15f, 0.76f));
+                    x = null;
+                    list = BasicPitch.notes(act[0], act[1], act[0].Length / BasicPitch.KEYS, BasicPitch.Settings.forSensitivity(level));
+                    act = null;
+                    notes = list.Count;
+                    if (notes == 0) throw new IOException("No se ha encontrado ninguna nota en el audio.");
+                    File.WriteAllBytes(midi, MidiWriter.toBytes(list, Synth.GM_PROGRAM[inst]));
+                }
+                y = new Synth(inst, OutRate).render(list, seconds, new StageProgress(this, "Tocando con " + Synth.NAMES[inst] + "…", 0.85f, 0.93f));
+                AudioIO.SaveMp3(y, OutRate, dest, new StageProgress(this, "Creando el MP3…", 0.93f, 1f));
+                written = dest;
             }
             catch (CancelledException)
             {
                 error = "Conversión cancelada.";
+            }
+            catch (MuScriptor.TokenException e)
+            {
+                MuScriptor.ForgetToken();
+                error = e.Message;
             }
             catch (OutOfMemoryException)
             {
@@ -382,9 +452,15 @@ namespace MelodiaMidi
             {
                 error = e.Message;
             }
+            finally
+            {
+                if (work != null) try { Directory.Delete(work, true); } catch (Exception) { }
+                Ui(delegate { progress.Style = ProgressBarStyle.Blocks; });
+            }
             float[] result = y;
-            string midiFile = midi;
-            Ui(delegate { Finish(error, warning, written, midiFile, result, notes, seconds, truncated); });
+            string midiFile = error == null || File.Exists(midi ?? "") ? midi : null;
+            string inst2 = instruments;
+            Ui(delegate { Finish(error, written, midiFile, inst2, result, notes, seconds, truncated); });
         }
 
         private static WeightFile Model()
@@ -448,35 +524,40 @@ namespace MelodiaMidi
             return new float[][] { note, onset };
         }
 
-        private void Finish(string error, string warning, string written, string midi, float[] result, int notes, double secs, bool truncated)
+        private void Finish(string error, string written, string midi, string instruments, float[] result, int notes, double secs, bool truncated)
         {
             busy = false;
             SetEnabled(pickBtn, true);
             SetEnabled(convertBtn, inputPath != null);
             instrument.Enabled = true;
-            noteLevel.Enabled = true;
+            engine.Enabled = true;
+            UpdateEngineHint();
             progress.Visible = false;
             cancelBtn.Visible = false;
             if (error != null)
             {
                 status.ForeColor = CError;
-                status.Text = error;
+                if (error.Length > 80 || error.IndexOf('\n') >= 0)
+                {
+                    status.Text = "No se ha podido terminar (ver el aviso).";
+                    MessageBox.Show(this, error, "Melodía MIDI", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
+                else status.Text = error;
                 return;
             }
             outputPath = written;
             midiPath = midi;
             lastOutput = result;
             status.ForeColor = COk;
-            status.Text = warning == null ? "¡Listo!" : "Listo (aviso abajo).";
+            status.Text = "¡Listo!";
             long size = 0;
             try { size = new FileInfo(written).Length; } catch (Exception) { }
             int m = (int)(secs / 60), s = (int)(secs % 60);
             string info = Path.GetFileName(written) + "  ·  " + (size / 1048576.0).ToString("0.0") + " MB\n"
                 + Path.GetFileName(midi) + "  ·  " + notes + " notas  ·  " + m + ":" + s.ToString("00");
+            if (!string.IsNullOrEmpty(instruments)) info += "\nInstrumentos: " + instruments;
             if (truncated) info += "\nSolo se han procesado los primeros " + AudioIO.MaxSeconds / 60 + " minutos.";
-            if (warning != null) info += "\n" + warning;
             resultInfo.Text = info;
-            openBtn.Text = written.EndsWith(".wav", StringComparison.OrdinalIgnoreCase) ? "Abrir WAV" : "Abrir MP4";
             ShowResult(true);
         }
 

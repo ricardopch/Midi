@@ -61,9 +61,5 @@ for name, val in re.findall(r'Guid (\w+) = new Guid\("([^"]+)"\)', cs):
         errors += 1
     print(f"  {name:42s} {status}")
 
-for c, v in [("MFT_ENUM_FLAG_ALL", "0x3F")]:
-    m = re.search(r"%s\s*=\s*(0x[0-9a-fA-F]+)" % c, allh)
-    print(f"  {c} cabecera={m.group(1) if m else '?'} mío={v}")
-
 print("ERRORES:", errors)
 sys.exit(1 if errors else 0)

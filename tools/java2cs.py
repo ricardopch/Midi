@@ -7,7 +7,7 @@ import os
 import re
 import sys
 
-FILES = ["BasicPitch", "WeightFile", "MidiWriter", "Synth", "Resampler"]
+FILES = ["BasicPitch", "WeightFile", "MidiWriter", "Mp3Encoder", "Synth", "Resampler"]
 
 KEYWORDS = ["out", "in", "base", "lock", "ref", "params", "object", "event", "checked", "fixed",
             "operator", "is", "as", "internal", "readonly", "sealed", "unchecked", "virtual",
@@ -39,6 +39,7 @@ def convert(src):
     s = re.sub(r"\bboolean\b", "bool", s)
     s = re.sub(r"\bString\b", "string", s)
     s = s.replace("Double.NEGATIVE_INFINITY", "double.NegativeInfinity")
+    s = s.replace("Integer.MAX_VALUE", "int.MaxValue")
     s = s.replace("Float.POSITIVE_INFINITY", "float.PositiveInfinity")
     s = s.replace("Float.NEGATIVE_INFINITY", "float.NegativeInfinity")
     s = s.replace("Float.intBitsToFloat(", "JU.IntBitsToFloat(")

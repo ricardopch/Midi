@@ -36,6 +36,7 @@ import android.widget.Toast;
 
 import com.ricardopch.midi.engine.BasicPitch;
 import com.ricardopch.midi.engine.MidiWriter;
+import com.ricardopch.midi.engine.Mp3Encoder;
 import com.ricardopch.midi.engine.Note;
 import com.ricardopch.midi.engine.Progress;
 import com.ricardopch.midi.engine.Resampler;
@@ -79,7 +80,7 @@ public class MainActivity extends Activity {
 
     private File inputFile;          // copia local de la canción
     private String inputName;
-    private File outputFile;         // MP4 generado
+    private File outputFile;         // MP3 generado
     private File midiFile;           // MIDI generado
     private static WeightFile model; // pesos de Basic Pitch (se cargan una vez)
     private volatile boolean busy;
@@ -117,7 +118,7 @@ public class MainActivity extends Activity {
 
         TextView title = text("♪ Melodía MIDI", 26, C_TEXT, true);
         root.addView(title);
-        TextView sub = text("Pasa a notas todo lo que suena en una canción y crea un MP4 tocado con un solo instrumento, "
+        TextView sub = text("Pasa a notas todo lo que suena en una canción y crea un MP3 tocado con un solo instrumento, "
                 + "además del archivo MIDI (.mid).", 15, C_MUTED, false);
         sub.setPadding(0, dp(4), 0, dp(14));
         root.addView(sub);
@@ -169,7 +170,7 @@ public class MainActivity extends Activity {
 
         // 4. Convertir
         LinearLayout c3 = card(root, "4 · Convertir");
-        convertBtn = button("Crear MP4 y MIDI", true);
+        convertBtn = button("Crear MP3 y MIDI", true);
         convertBtn.setEnabled(false);
         convertBtn.setAlpha(0.5f);
         c3.addView(convertBtn, fullWidth());
@@ -206,8 +207,8 @@ public class MainActivity extends Activity {
         resultCard.addView(resultInfo);
         playBtn = button("▶  Reproducir", true);
         resultCard.addView(playBtn, fullWidth());
-        saveBtn = button("Guardar MP4…", false);
-        shareBtn = button("Compartir MP4", false);
+        saveBtn = button("Guardar MP3…", false);
+        shareBtn = button("Compartir MP3", false);
         addRow(resultCard, saveBtn, shareBtn);
         saveMidiBtn = button("Guardar MIDI…", false);
         shareMidiBtn = button("Compartir MIDI", false);
@@ -216,10 +217,10 @@ public class MainActivity extends Activity {
             @Override public void onClick(View v) { togglePlay(); }
         });
         saveBtn.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { saveFile(outputFile, "video/mp4", REQ_SAVE); }
+            @Override public void onClick(View v) { saveFile(outputFile, "audio/mpeg", REQ_SAVE); }
         });
         shareBtn.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { shareFile(outputFile, "video/mp4", "Compartir MP4"); }
+            @Override public void onClick(View v) { shareFile(outputFile, "audio/mpeg", "Compartir MP3"); }
         });
         saveMidiBtn.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { saveFile(midiFile, "audio/midi", REQ_SAVE_MIDI); }
@@ -229,7 +230,7 @@ public class MainActivity extends Activity {
         });
 
         TextView tip = text("Las notas se sacan con una red neuronal (Basic Pitch) que reconoce voces e instrumentos a la vez. "
-                + "El MP4 y el MIDI duran lo mismo que la canción, así que puedes compararlos. "
+                + "El MP3 y el MIDI duran lo mismo que la canción, así que puedes compararlos. "
                 + "El archivo .mid se abre en cualquier programa de música (MuseScore, GarageBand, FL Studio…).", 13, C_MUTED, false);
         tip.setPadding(dp(4), dp(16), dp(4), 0);
         root.addView(tip);
@@ -349,7 +350,7 @@ public class MainActivity extends Activity {
         super.onActivityResult(requestCode, resultCode, data);
         if (resultCode != RESULT_OK || data == null || data.getData() == null) return;
         if (requestCode == REQ_PICK) loadInput(data.getData());
-        else if (requestCode == REQ_SAVE) copyFileTo(outputFile, data.getData(), "MP4 guardado ✔");
+        else if (requestCode == REQ_SAVE) copyFileTo(outputFile, data.getData(), "MP3 guardado ✔");
         else if (requestCode == REQ_SAVE_MIDI) copyFileTo(midiFile, data.getData(), "MIDI guardado ✔");
     }
 
@@ -504,8 +505,8 @@ public class MainActivity extends Activity {
             mid = new File(dir, safe(base) + "_notas.mid");
             writeBytes(mid, MidiWriter.toBytes(notes, Synth.GM_PROGRAM[instrument]));
             float[] y = new Synth(instrument, OUT_RATE).render(notes, seconds, stage("Tocando con " + Synth.NAMES[instrument] + "…", 0.74f, 0.86f));
-            out = new File(dir, safe(base) + "_notas_" + safe(Synth.NAMES[instrument]) + ".mp4");
-            Mp4Writer.write(y, OUT_RATE, out, stage("Creando MP4…", 0.86f, 1f));
+            out = new File(dir, safe(base) + "_notas_" + safe(Synth.NAMES[instrument]) + ".mp3");
+            writeBytes(out, Mp3Encoder.encode(y, y.length, OUT_RATE, 128, stage("Creando MP3…", 0.86f, 1f)));
         } catch (Progress.Cancelled c) {
             error = "Conversión cancelada.";
         } catch (OutOfMemoryError oom) {
@@ -611,7 +612,7 @@ public class MainActivity extends Activity {
         status.setTextColor(C_TEXT);
         status.setText("¡Listo!");
         int m = (int) (secs / 60), s = (int) (secs % 60);
-        String info = String.format(Locale.getDefault(), "%s\n%s\n%d notas · %d:%02d · MP4 %.1f MB · MIDI %d KB",
+        String info = String.format(Locale.getDefault(), "%s\n%s\n%d notas · %d:%02d · MP3 %.1f MB · MIDI %d KB",
                 result.getName(), midi.getName(), notes, m, s, result.length() / 1048576.0, (midi.length() + 1023) / 1024);
         if (trunc) info += "\n(Solo se han procesado los primeros " + AudioDecoder.MAX_SECONDS / 60 + " minutos.)";
         resultInfo.setText(info);
